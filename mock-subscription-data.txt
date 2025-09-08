@@ -1,0 +1,326 @@
+# Mock Subscription Data for Premium Testing
+# This file contains MongoDB documents that can be inserted into your database for testing premium features
+
+## 1. Premium User with Full Platform Access
+
+### User Document (MongoDB Collection: User)
+```json
+{
+  "_id": {"$oid": "66c123456789abcdef123456"},
+  "email": "premium.tester@example.com",
+  "password": "$2b$12$LQv3c1yqBwlFDQAhDdFn7OQnrfjRZJ.R3Sb8RrE2.rrLSf/kpNF5.",
+  "username": "premium_tester",
+  "plan": "PREMIUM_MONTHLY",
+  "image": "https://cdn-icons-png.flaticon.com/512/1053/1053244.png",
+  "lastLogin": {"$date": "2025-08-18T10:00:00.000Z"},
+  "createdAt": {"$date": "2025-07-01T10:00:00.000Z"},
+  "updatedAt": {"$date": "2025-08-18T10:00:00.000Z"}
+}
+```
+
+### Active Subscription (MongoDB Collection: Subscription)
+```json
+{
+  "_id": {"$oid": "66c123456789abcdef123457"},
+  "userId": {"$oid": "66c123456789abcdef123456"},
+  "stripeCustomerId": "cus_PremiumTester123456",
+  "stripeSubscriptionId": "sub_PremiumTester789012",
+  "stripePriceId": "price_1NuCZtExample123456",
+  "plan": "PREMIUM_MONTHLY",
+  "status": "ACTIVE",
+  "currentPeriodStart": {"$date": "2025-08-01T00:00:00.000Z"},
+  "currentPeriodEnd": {"$date": "2025-09-01T00:00:00.000Z"},
+  "cancelAtPeriodEnd": false,
+  "createdAt": {"$date": "2025-07-01T10:00:00.000Z"},
+  "updatedAt": {"$date": "2025-08-01T00:00:00.000Z"}
+}
+```
+
+### Facebook Auth Provider (MongoDB Collection: AuthProvider)
+```json
+{
+  "_id": {"$oid": "66c123456789abcdef123458"},
+  "userId": {"$oid": "66c123456789abcdef123456"},
+  "provider": "facebook",
+  "providerId": "facebook_test_user_123456",
+  "email": "premium.tester@example.com",
+  "username": "premium_tester_fb",
+  "displayName": "Premium Tester FB",
+  "profileImage": "https://graph.facebook.com/facebook_test_user_123456/picture",
+  "accessToken": "EAAY1234567890abcdefghijklmnopqrstuvwxyz",
+  "refreshToken": "1//04567890abcdefghijklmnopqrstuvwxyz",
+  "expiresAt": {"$date": "2025-10-18T10:00:00.000Z"},
+  "advertisingAccountId": "act_123456789",
+  "businessAccounts": "[{\"id\":\"page_123456789\",\"name\":\"Test Business Page\",\"access_token\":\"EAAY_page_token\"}]",
+  "adAccounts": "[{\"id\":\"act_123456789\",\"name\":\"Test Ad Account\",\"account_status\":\"1\",\"currency\":\"USD\"}]",
+  "createdAt": {"$date": "2025-07-01T10:00:00.000Z"},
+  "updatedAt": {"$date": "2025-08-18T10:00:00.000Z"}
+}
+```
+
+### Instagram Auth Provider (MongoDB Collection: AuthProvider)
+```json
+{
+  "_id": {"$oid": "66c123456789abcdef123459"},
+  "userId": {"$oid": "66c123456789abcdef123456"},
+  "provider": "instagram",
+  "providerId": "instagram_test_user_123456",
+  "email": "premium.tester@example.com",
+  "username": "premium_tester_ig",
+  "displayName": "Premium Tester IG",
+  "profileImage": "https://graph.instagram.com/instagram_test_user_123456/picture",
+  "accessToken": "IGQVJ1234567890abcdefghijklmnopqrstuvwxyz",
+  "refreshToken": "IGQVJ_refresh_1234567890abcdefghij",
+  "expiresAt": {"$date": "2025-11-18T10:00:00.000Z"},
+  "advertisingAccountId": "act_ig_123456789",
+  "businessAccounts": "[{\"id\":\"ig_business_123456789\",\"name\":\"Test IG Business\",\"access_token\":\"IGQVJ_business_token\"}]",
+  "createdAt": {"$date": "2025-07-01T10:00:00.000Z"},
+  "updatedAt": {"$date": "2025-08-18T10:00:00.000Z"}
+}
+```
+
+### Twitter Auth Provider (MongoDB Collection: AuthProvider)
+```json
+{
+  "_id": {"$oid": "66c123456789abcdef12345a"},
+  "userId": {"$oid": "66c123456789abcdef123456"},
+  "provider": "twitter",
+  "providerId": "twitter_test_user_123456",
+  "email": "premium.tester@example.com",
+  "username": "premium_tester_tw",
+  "displayName": "Premium Tester TW",
+  "profileImage": "https://pbs.twimg.com/profile_images/twitter_test_user_123456.jpg",
+  "accessToken": "123456789-abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
+  "refreshToken": "twitter_refresh_token_123456789abcdefghij",
+  "expiresAt": {"$date": "2025-12-18T10:00:00.000Z"},
+  "advertisingAccountId": "ads_twitter_123456789",
+  "businessAccounts": "[{\"id\":\"twitter_ads_123456789\",\"name\":\"Test Twitter Ads Account\"}]",
+  "createdAt": {"$date": "2025-07-01T10:00:00.000Z"},
+  "updatedAt": {"$date": "2025-08-18T10:00:00.000Z"}
+}
+```
+
+### TikTok Auth Provider (MongoDB Collection: AuthProvider)
+```json
+{
+  "_id": {"$oid": "66c123456789abcdef12345b"},
+  "userId": {"$oid": "66c123456789abcdef123456"},
+  "provider": "tiktok",
+  "providerId": "tiktok_test_user_123456",
+  "email": "premium.tester@example.com",
+  "username": "premium_tester_tt",
+  "displayName": "Premium Tester TT",
+  "profileImage": "https://p16-sign-va.tiktokcdn.com/tiktok_test_user_123456~c5_1080x1080.jpeg",
+  "accessToken": "tiktok_access_token_123456789abcdefghijklmnop",
+  "refreshToken": "tiktok_refresh_token_123456789abcdefghij",
+  "expiresAt": {"$date": "2025-10-18T10:00:00.000Z"},
+  "advertisingAccountId": "tiktok_ads_123456789",
+  "businessAccounts": "[{\"id\":\"tiktok_business_123456789\",\"name\":\"Test TikTok Business\"}]",
+  "createdAt": {"$date": "2025-07-01T10:00:00.000Z"},
+  "updatedAt": {"$date": "2025-08-18T10:00:00.000Z"}
+}
+```
+
+### Amazon Auth Provider (MongoDB Collection: AuthProvider)
+```json
+{
+  "_id": {"$oid": "66c123456789abcdef12345c"},
+  "userId": {"$oid": "66c123456789abcdef123456"},
+  "provider": "amazon",
+  "providerId": "amazon_test_user_123456",
+  "email": "premium.tester@example.com",
+  "username": "premium_tester_amz",
+  "displayName": "Premium Tester AMZ",
+  "profileImage": "https://m.media-amazon.com/images/amazon_test_user_123456.jpg",
+  "accessToken": "amazon_access_token_123456789abcdefghijklmnopqrstuvwxyz",
+  "refreshToken": "amazon_refresh_token_123456789abcdefghijklmnop",
+  "expiresAt": {"$date": "2025-09-18T10:00:00.000Z"},
+  "advertisingAccountId": "amz_ads_123456789",
+  "businessAccounts": "[{\"id\":\"amzn1.sp.solution.123456789\",\"name\":\"Test Amazon Seller Account\",\"marketplace_id\":\"ATVPDKIKX0DER\"}]",
+  "adAccounts": "[{\"id\":\"profile_123456789\",\"name\":\"Test Amazon Ad Profile\",\"country_code\":\"US\",\"currency_code\":\"USD\"}]",
+  "configId": "amzn1.sp.config.123456789",
+  "createdAt": {"$date": "2025-07-01T10:00:00.000Z"},
+  "updatedAt": {"$date": "2025-08-18T10:00:00.000Z"}
+}
+```
+
+### Sample Invoice (MongoDB Collection: Invoice)
+```json
+{
+  "_id": {"$oid": "66c123456789abcdef12345d"},
+  "userId": {"$oid": "66c123456789abcdef123456"},
+  "stripeInvoiceId": "in_PremiumTesterInvoice123456",
+  "amount": 2900,
+  "currency": "usd",
+  "status": "ACTIVE",
+  "paymentIntentId": "pi_PremiumTesterPayment123456",
+  "hostedInvoiceUrl": "https://invoice.stripe.com/i/acct_test_123456/invoice_test_123456",
+  "invoicePdf": "https://pay.stripe.com/invoice/acct_test_123456/invoice_test_123456/pdf",
+  "createdAt": {"$date": "2025-08-01T00:00:00.000Z"}
+}
+```
+
+## 2. Alternative Test Users
+
+### Freemium User (for comparison testing)
+```json
+{
+  "_id": {"$oid": "66c223456789abcdef123456"},
+  "email": "freemium.tester@example.com",
+  "password": "$2b$12$LQv3c1yqBwlFDQAhDdFn7OQnrfjRZJ.R3Sb8RrE2.rrLSf/kpNF5.",
+  "username": "freemium_tester",
+  "plan": "FREEMIUM",
+  "image": "https://cdn-icons-png.flaticon.com/512/1053/1053244.png",
+  "lastLogin": {"$date": "2025-08-18T10:00:00.000Z"},
+  "createdAt": {"$date": "2025-07-15T10:00:00.000Z"},
+  "updatedAt": {"$date": "2025-08-18T10:00:00.000Z"}
+}
+```
+
+### Premium Yearly User
+```json
+{
+  "_id": {"$oid": "66c323456789abcdef123456"},
+  "email": "yearly.premium@example.com",
+  "password": "$2b$12$LQv3c1yqBwlFDQAhDdFn7OQnrfjRZJ.R3Sb8RrE2.rrLSf/kpNF5.",
+  "username": "yearly_premium",
+  "plan": "PREMIUM_YEARLY",
+  "image": "https://cdn-icons-png.flaticon.com/512/1053/1053244.png",
+  "lastLogin": {"$date": "2025-08-18T10:00:00.000Z"},
+  "createdAt": {"$date": "2025-01-01T10:00:00.000Z"},
+  "updatedAt": {"$date": "2025-08-18T10:00:00.000Z"}
+}
+```
+
+## 3. MongoDB Commands to Insert Data
+
+### Using MongoDB CLI/Compass:
+
+```javascript
+// Insert Premium User
+db.User.insertOne({
+  "_id": ObjectId("66c123456789abcdef123456"),
+  "email": "premium.tester@example.com",
+  "password": "$2b$12$LQv3c1yqBwlFDQAhDdFn7OQnrfjRZJ.R3Sb8RrE2.rrLSf/kpNF5.",
+  "username": "premium_tester",
+  "plan": "PREMIUM_MONTHLY",
+  "image": "https://cdn-icons-png.flaticon.com/512/1053/1053244.png",
+  "lastLogin": new Date("2025-08-18T10:00:00.000Z"),
+  "createdAt": new Date("2025-07-01T10:00:00.000Z"),
+  "updatedAt": new Date("2025-08-18T10:00:00.000Z")
+});
+
+// Insert Active Subscription
+db.Subscription.insertOne({
+  "_id": ObjectId("66c123456789abcdef123457"),
+  "userId": ObjectId("66c123456789abcdef123456"),
+  "stripeCustomerId": "cus_PremiumTester123456",
+  "stripeSubscriptionId": "sub_PremiumTester789012",
+  "stripePriceId": "price_1NuCZtExample123456",
+  "plan": "PREMIUM_MONTHLY",
+  "status": "ACTIVE",
+  "currentPeriodStart": new Date("2025-08-01T00:00:00.000Z"),
+  "currentPeriodEnd": new Date("2025-09-01T00:00:00.000Z"),
+  "cancelAtPeriodEnd": false,
+  "createdAt": new Date("2025-07-01T10:00:00.000Z"),
+  "updatedAt": new Date("2025-08-01T00:00:00.000Z")
+});
+
+// Insert Facebook Auth Provider
+db.AuthProvider.insertOne({
+  "_id": ObjectId("66c123456789abcdef123458"),
+  "userId": ObjectId("66c123456789abcdef123456"),
+  "provider": "facebook",
+  "providerId": "facebook_test_user_123456",
+  "email": "premium.tester@example.com",
+  "username": "premium_tester_fb",
+  "displayName": "Premium Tester FB",
+  "profileImage": "https://graph.facebook.com/facebook_test_user_123456/picture",
+  "accessToken": "EAAY1234567890abcdefghijklmnopqrstuvwxyz",
+  "refreshToken": "1//04567890abcdefghijklmnopqrstuvwxyz",
+  "expiresAt": new Date("2025-10-18T10:00:00.000Z"),
+  "advertisingAccountId": "act_123456789",
+  "businessAccounts": "[{\"id\":\"page_123456789\",\"name\":\"Test Business Page\",\"access_token\":\"EAAY_page_token\"}]",
+  "adAccounts": "[{\"id\":\"act_123456789\",\"name\":\"Test Ad Account\",\"account_status\":\"1\",\"currency\":\"USD\"}]",
+  "createdAt": new Date("2025-07-01T10:00:00.000Z"),
+  "updatedAt": new Date("2025-08-18T10:00:00.000Z")
+});
+
+// Insert Instagram Auth Provider
+db.AuthProvider.insertOne({
+  "_id": ObjectId("66c123456789abcdef123459"),
+  "userId": ObjectId("66c123456789abcdef123456"),
+  "provider": "instagram",
+  "providerId": "instagram_test_user_123456",
+  "email": "premium.tester@example.com",
+  "username": "premium_tester_ig",
+  "displayName": "Premium Tester IG",
+  "profileImage": "https://graph.instagram.com/instagram_test_user_123456/picture",
+  "accessToken": "IGQVJ1234567890abcdefghijklmnopqrstuvwxyz",
+  "refreshToken": "IGQVJ_refresh_1234567890abcdefghij",
+  "expiresAt": new Date("2025-11-18T10:00:00.000Z"),
+  "advertisingAccountId": "act_ig_123456789",
+  "businessAccounts": "[{\"id\":\"ig_business_123456789\",\"name\":\"Test IG Business\",\"access_token\":\"IGQVJ_business_token\"}]",
+  "createdAt": new Date("2025-07-01T10:00:00.000Z"),
+  "updatedAt": new Date("2025-08-18T10:00:00.000Z")
+});
+
+// Continue with other providers...
+```
+
+## 4. Test Credentials for Login
+
+### Premium Test Account
+- **Email**: `premium.tester@example.com`
+- **Password**: `Ayoublife$20` (hashed: `$2b$12$2TO.Dz.VhEUctkxQyTupw.9gigUaaFHuw0L/0cWO6uEtlLUbVMNHK`)
+- **Username**: `premium_tester`
+- **Plan**: `PREMIUM_MONTHLY`
+- **Features**: Full access to all platforms and ads analytics
+
+### Freemium Test Account
+- **Email**: `freemium.tester@example.com`
+- **Password**: `TestFree123!`
+- **Username**: `freemium_tester`
+- **Plan**: `FREEMIUM`
+- **Features**: Limited to posts analytics on Instagram only
+
+## 5. Expected Premium Features Access
+
+With the premium user account, you should have access to:
+
+✅ **All Platforms**: Facebook, Instagram, Twitter, TikTok, Amazon
+✅ **Ads Analytics**: Campaign data, ROI metrics, audience insights
+✅ **Advanced Dashboard**: Complete overview with all metrics
+✅ **AI Features**: Enhanced post suggestions and insights
+✅ **Multiple Accounts**: Connect unlimited social media accounts
+✅ **Export Data**: Download analytics reports
+✅ **Priority Support**: Enhanced customer support features
+
+## 6. Testing Instructions
+
+1. **Insert the data** using MongoDB CLI or Compass
+2. **Login** with the premium test account credentials
+3. **Verify subscription status** in the profile/subscription page
+4. **Test all platform connections** - they should show as connected
+5. **Access ads analytics** - should display premium-only features
+6. **Compare with freemium account** to ensure feature restrictions work
+
+## 7. Environment Variables Needed
+
+Make sure these environment variables are set in your `.env.local`:
+
+```
+STRIPE_SECRET_KEY=sk_test_your_stripe_secret_key
+STRIPE_PUBLISHABLE_KEY=pk_test_your_stripe_publishable_key
+STRIPE_WEBHOOK_SECRET=whsec_your_webhook_secret
+
+# Platform API keys (for testing with real APIs)
+FACEBOOK_APP_ID=your_facebook_app_id
+FACEBOOK_APP_SECRET=your_facebook_app_secret
+TWITTER_CLIENT_ID=your_twitter_client_id
+TWITTER_CLIENT_SECRET=your_twitter_client_secret
+TIKTOK_CLIENT_ID=your_tiktok_client_id
+TIKTOK_CLIENT_SECRET=your_tiktok_client_secret
+```
+
+This mock data will give you full premium access to test all the premium features of your application!

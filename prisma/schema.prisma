@@ -1,3 +1,6 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -7,12 +10,161 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+
+/////////////////////////////// ENUMS
+
+
+enum SubscriptionPlan {
+  FREEMIUM
+  PREMIUM_MONTHLY
+  PREMIUM_YEARLY
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELED
+  INCOMPLETE
+  INCOMPLETE_EXPIRED
+  PAST_DUE
+  TRIALING
+  UNPAID
+}
+
+enum Providers {
+  facebook
+  instagram
+  meta
+  twitter
+  amazon
+  tiktok
+}
+
+enum TokenType {
+  VERIFICATION_EMAIL
+  RESET_PASSWORD
+
+  REFRESH_USER
+  ACCESS_USER
+
+  REFRESH_INSTAGRAM
+  ACCESS_INSTAGRAM
+
+  REFRESH_FACEBOOK
+  ACCESS_FACEBOOK
+
+  REFRESH_TWITTER
+  ACCESS_TWITTER
+
+  REFRESH_AMAZON
+  ACCESS_AMAZON
+
+  REFRESH_TIKTOK
+  ACCESS_TIKTOK
+}
+
 model User {
-  id            String    @id @default(auto()) @map("_id") @db.ObjectId
-  adAccountId   String?
-  name          String?
-  email         String?   
-  image         String?
-  lastLoginAt   DateTime?
-  createdAt     DateTime  @default(now())
+  id                     String               @id @default(auto()) @map("_id") @db.ObjectId
+  email                  String               @unique
+  password               String
+  username               String               @unique
+  plan                   SubscriptionPlan     @default(FREEMIUM)
+  image                  String               @default("https://cdn-icons-png.flaticon.com/512/1053/1053244.png")
+
+  // Relations
+  authProviders          AuthProvider[]
+  tokens                 token[]
+  subscriptions          Subscription[]
+  invoices               Invoice[]
+
+  // Time & Date
+  lastLogin              DateTime?
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @updatedAt
+}
+
+model token {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenType TokenType
+
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+model AuthProvider {
+  id                    String    @id @default(auto()) @map("_id") @db.ObjectId
+  userId                String    @db.ObjectId
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider              Providers
+  providerId            String
+
+  // Basic profile data
+  email                 String?
+  username              String?
+  displayName           String?
+  profileImage          String?
+
+  // Additional profile data (previously stored in session)
+  name                  String?
+  followersCount        Int?
+  mediaCount            Int?
+  accountType           String?
+  canAccessInsights     Boolean?  @default(false)
+  canPublishContent     Boolean?  @default(false)
+  canManageAds          Boolean?  @default(false)
+
+  // OAuth tokens
+  accessToken           String?
+  refreshToken          String?
+  expiresAt             DateTime?
+
+  // Platform-specific data
+  advertisingAccountId  String?
+  businessAccounts      String? // JSON string
+  adAccounts            String? // JSON string
+  configId              String?
+
+  // Analytics summary (previously in session)
+  analyticsSummary      String? // JSON string for analytics data
+
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@unique([provider, providerId])
+}
+
+model Subscription {
+  id                   String             @id @default(auto()) @map("_id") @db.ObjectId
+  userId               String             @db.ObjectId
+  user                 User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stripeCustomerId     String?
+  stripeSubscriptionId String?
+  stripePriceId        String?
+
+  plan                 SubscriptionPlan   @default(FREEMIUM)
+  status               SubscriptionStatus @default(ACTIVE)
+
+  currentPeriodStart   DateTime?
+  currentPeriodEnd     DateTime?
+  cancelAtPeriodEnd    Boolean            @default(false)
+
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+}
+
+model Invoice {
+  id                String                @id @default(auto()) @map("_id") @db.ObjectId
+  userId            String                @db.ObjectId
+  user              User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stripeInvoiceId   String                @unique
+
+  amount            Int      
+  currency          String                @default("usd")
+  status            SubscriptionStatus   
+
+  paymentIntentId   String?
+  hostedInvoiceUrl  String?
+  invoicePdf        String?
+  createdAt         DateTime              @default(now())
 }

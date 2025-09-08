@@ -16,11 +16,18 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
+# package manager locks
+yarn.lock
+package-lock.json
+pnpm-lock.yaml
+
 # env files
 .env*
+!.env.example
 
-# vercel
+# deployment
 .vercel
+.heroku
 
 # typescript
 *.tsbuildinfo

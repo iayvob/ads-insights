@@ -1,0 +1,17 @@
+{
+  "facebook": [
+    "ads_read",
+    "ads_management",
+    "read_insights"
+  ],
+  "instagram": [
+    "instagram_basic",
+    "instagram_manage_insights",
+    "pages_show_list",
+    "pages_read_engagement"
+  ],
+  "twitter": [
+    "ads.read",
+    "ads.write"
+  ]
+}
