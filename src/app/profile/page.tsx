@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, Suspense } from "react";
+import React, { useState, useEffect, Suspense } from "react";
 import { motion } from "framer-motion";
 import { useRouter, useSearchParams } from "next/navigation";
 import axios from "axios";
@@ -135,12 +135,21 @@ function ProfilePageContent() {
     }
   }, [searchParams]);
 
+  // Create ref for tracking parameter handling
+  const hasHandledParams = React.useRef(false);
+  
   // Handle error and success messages from URL search params
   useEffect(() => {
     const error = searchParams.get('error');
     const success = searchParams.get('success');
     
+    // Only process params once per unique URL
+    if (hasHandledParams.current) {
+      return;
+    }
+    
     if (error) {
+      hasHandledParams.current = true;
       let errorMessage = 'An error occurred';
       
       // Map common error codes to user-friendly messages
@@ -185,30 +194,31 @@ function ProfilePageContent() {
         variant: "destructive",
       });
       
-      // Clean up URL
-      const url = new URL(window.location.href);
-      url.searchParams.delete('error');
-      router.replace(url.pathname + url.search, { scroll: false });
+      // Clean up URL with setTimeout to avoid immediate re-render
+      setTimeout(() => {
+        router.replace('/profile?tab=connections', { scroll: false });
+      }, 100);
     }
     
     if (success) {
+      hasHandledParams.current = true;
       let successMessage = 'Authentication successful';
       
       // Map success codes to user-friendly messages
       switch (success) {
-        case 'instagram_connected':
+        case 'instagram':
           successMessage = 'Instagram account connected successfully! Your analytics data will be available shortly.';
           break;
-        case 'facebook_connected':
+        case 'facebook':
           successMessage = 'Facebook account connected successfully! Your analytics data will be available shortly.';
           break;
-        case 'twitter_connected':
+        case 'twitter':
           successMessage = 'X (Twitter) account connected successfully! Your analytics data will be available shortly.';
           break;
-        case 'tiktok_connected':
+        case 'tiktok':
           successMessage = 'TikTok account connected successfully! Your analytics data will be available shortly.';
           break;
-        case 'amazon_connected':
+        case 'amazon':
           successMessage = 'Amazon account connected successfully! Your analytics data will be available shortly.';
           break;
         default:
@@ -227,10 +237,7 @@ function ProfilePageContent() {
           await updateSession();
           // Force refresh profile data
           await synchronizeWithSession();
-          // Give a moment for data to propagate then refresh again
-          setTimeout(async () => {
-            await refresh();
-          }, 1000);
+          // No need for the extra timeout refresh - it's causing part of the loop
         } catch (error) {
           console.error('Failed to refresh data after connection:', error);
         }
@@ -238,12 +245,38 @@ function ProfilePageContent() {
       
       refreshData();
       
-      // Clean up URL
-      const url = new URL(window.location.href);
-      url.searchParams.delete('success');
-      router.replace(url.pathname + url.search, { scroll: false });
+      // Clean up URL with setTimeout to avoid immediate re-render
+      setTimeout(() => {
+        router.replace('/profile?tab=connections', { scroll: false });
+      }, 100);
     }
-  }, [searchParams, toast, router, updateSession, synchronizeWithSession, refresh]);
+  }, [searchParams, toast, router, updateSession, synchronizeWithSession]);
+
+  // Refresh tokens when session is available
+  useEffect(() => {
+    if (session?.user?.id) {
+      const refreshTokens = async () => {
+        try {
+          // Call token refresh API endpoint
+          await fetch('/api/auth/refresh', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: session.user?.id }),
+          });
+        } catch (error) {
+          console.error('Failed to refresh tokens:', error);
+        }
+      };
+      
+      // Refresh tokens on page load
+      refreshTokens();
+      
+      // Schedule token refresh every 30 minutes while page is open
+      const refreshInterval = setInterval(refreshTokens, 30 * 60 * 1000);
+      
+      return () => clearInterval(refreshInterval);
+    }
+  }, [session?.user?.id]);
 
   // Update local state when session changes
   useEffect(() => {

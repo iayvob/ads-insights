@@ -1,32 +1,45 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { UserService } from "@/services/user"
-import { withAuth } from "@/config/middleware/middleware"
 import { logger } from "@/config/logger"
 import { ServerSessionService } from "@/services/session-server";
 import { AuthSession } from "@/validations/types";
+import { addSecurityHeaders, createSuccessResponse } from "@/controllers/api-response";
 
 export const dynamic = "force-dynamic";
 export const dynamicParams = true;
 export const revalidate = 0;
 
-async function handler(request: NextRequest): Promise<NextResponse> {
-  const session = await ServerSessionService.getSession(request)
-
-  if (!session?.userId) {
-    return NextResponse.json({ success: true })
-  }
+export async function POST(request: NextRequest) {
 
   try {
     // Check if Facebook is connected by querying the database (same way as frontend)
+    const session = await ServerSessionService.getSession(request)
+
+    if (!session?.userId) {
+      return NextResponse.json({ success: true })
+    }
     const providers = await UserService.getActiveProviders(session.userId);
     const facebookProvider = providers.find(p => p.provider === 'facebook');
 
     if (!facebookProvider) {
       logger.info("Facebook not connected for user", { userId: session.userId });
-      return NextResponse.json({ 
-        success: true, 
-        message: "Facebook not connected" 
-      });
+      return addSecurityHeaders(createSuccessResponse(
+        { success: true },
+        "Facebook not connected"
+      ));
+    }
+
+    // Try to revoke Facebook token if available
+    if (facebookProvider.accessToken && facebookProvider.providerId) {
+      try {
+        // Revoke Facebook token
+        await fetch(
+          `https://graph.facebook.com/${facebookProvider.providerId}/permissions?access_token=${facebookProvider.accessToken}`,
+          { method: "DELETE" },
+        )
+      } catch (error) {
+        logger.warn("Failed to revoke Facebook token", { error, userId: session.userId })
+      }
     }
 
     // Remove from database
@@ -35,7 +48,7 @@ async function handler(request: NextRequest): Promise<NextResponse> {
     // Remove Facebook from connected platforms in session
     const updatedConnectedPlatforms = { ...session.connectedPlatforms };
     delete updatedConnectedPlatforms.facebook;
-    
+
     const updatedSession: AuthSession = {
       ...session,
       connectedPlatforms: updatedConnectedPlatforms
@@ -47,9 +60,7 @@ async function handler(request: NextRequest): Promise<NextResponse> {
     await ServerSessionService.setSession(request, updatedSession, response)
     return response
   } catch (error) {
-    logger.error("Error during Facebook logout", { error, userId: session.userId })
-    return NextResponse.json({ success: false, error: "Failed to log out from Facebook" }, { status: 500 })
+    logger.error("Facebook logout error:", error)
+    return addSecurityHeaders(NextResponse.json({ error: "Failed to logout from Facebook" }, { status: 500 }))
   }
 }
-
-export const POST = withAuth(handler)

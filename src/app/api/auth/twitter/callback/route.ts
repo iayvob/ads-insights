@@ -42,7 +42,15 @@ export const GET = withErrorHandling(async (request: NextRequest) => {
       callbackUrl,
       session.codeVerifier
     )
-
+    
+    // Calculate token expiration - Twitter tokens typically last for 2 hours (7200 seconds)
+    // But we'll extend it if a refresh token is provided
+    let expiresIn = tokenData.expires_in || 7200;
+    
+    // If we have a refresh token, set a long expiration to account for auto-refresh
+    const hasRefreshToken = !!tokenData.refresh_token;
+    const effectiveExpiresIn = hasRefreshToken ? 60 * 24 * 60 * 60 : expiresIn; // 60 days if refresh token available
+    
     // Get user info
     const userData = await OAuthService.getTwitterUserData(tokenData.access_token)
 
@@ -84,7 +92,9 @@ export const GET = withErrorHandling(async (request: NextRequest) => {
       }),
       accessToken: tokenData.access_token,
       refreshToken: tokenData.refresh_token || null,
-      expiresAt: new Date(Date.now() + tokenData.expires_in * 1000),
+      expiresAt: new Date(Date.now() + effectiveExpiresIn * 1000),
+      tokenExpiresIn: effectiveExpiresIn,
+      hasRefreshToken: hasRefreshToken,
     })
 
     // Update session with full connectedPlatforms structure
@@ -115,8 +125,8 @@ export const GET = withErrorHandling(async (request: NextRequest) => {
           account_tokens: {
             access_token: tokenData.access_token,
             refresh_token: tokenData.refresh_token,
-            expires_at: Date.now() + tokenData.expires_in * 1000,
-          }
+            expires_at: Date.now() + effectiveExpiresIn * 1000
+          } as any
         }
       },
     }

@@ -18,6 +18,7 @@ import {
   Loader2,
   Video,
   Lock,
+  DollarSign,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { OverviewMetrics } from "@/components/dashboard/overview-metrics";
@@ -26,6 +27,7 @@ import { InstagramInsights } from "@/components/dashboard/instagram-insights";
 import { TwitterInsights } from "@/components/dashboard/twitter-insights";
 import { TikTokInsights } from "@/components/dashboard/tiktok-insights";
 import { AmazonInsights } from "@/components/dashboard/amazon-insights";
+import { AdsAnalyticsComponent } from "@/components/dashboard/ads-analytics-component";
 import { useAnalyticsData } from "@/hooks/use-analytics-data";
 import { useSession } from "@/hooks/session-context";
 import { generateMockAnalyticsData } from "@/lib/mock-analytics-data";
@@ -411,14 +413,16 @@ export default function Dashboard() {
             </TabsTrigger>
 
             {platformAccess.instagram && (
-              <TabsTrigger
-                value="instagram"
-                disabled={!connectedPlatforms.includes("instagram")}
-                className="inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:to-pink-500 data-[state=active]:text-white data-[state=active]:shadow-sm"
-              >
-                <Instagram className="h-4 w-4 mr-2" />
-                Instagram
-              </TabsTrigger>
+              <>
+                <TabsTrigger
+                  value="instagram"
+                  disabled={!connectedPlatforms.includes("instagram")}
+                  className="inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:to-pink-500 data-[state=active]:text-white data-[state=active]:shadow-sm"
+                >
+                  <Instagram className="h-4 w-4 mr-2" />
+                  Instagram
+                </TabsTrigger>
+              </>
             )}
 
             {platformAccess.facebook && (
@@ -479,21 +483,58 @@ export default function Dashboard() {
               </TabsContent>
 
               {platformAccess.instagram && (
-                <TabsContent value="instagram" className="space-y-6">
-                  <InstagramInsights
-                    data={displayData?.instagram || mockData?.instagram}
-                    error={displayData?.errors?.instagram}
-                    canAccessAds={session?.user?.plan === "PREMIUM_MONTHLY" || session?.user?.plan === "PREMIUM_YEARLY"}
-                  />
-                </TabsContent>
+                <>
+                  <TabsContent value="instagram" className="space-y-6">
+                    <InstagramInsights
+                      data={displayData?.instagram || mockData?.instagram}
+                      error={displayData?.errors?.instagram}
+                      canAccessAds={session?.user?.plan === "PREMIUM_MONTHLY" || session?.user?.plan === "PREMIUM_YEARLY"}
+                    />
+                    {/* Ads Analytics for Instagram if user has premium subscription */}
+                    {(session?.user?.plan === "PREMIUM_MONTHLY" || session?.user?.plan === "PREMIUM_YEARLY") && displayData?.instagram?.ads && (
+                      <div className="mt-8">
+                        <AdsAnalyticsComponent 
+                          data={displayData?.instagram?.ads || mockData?.instagram?.ads}
+                          platform="instagram"
+                        />
+                      </div>
+                    )}
+                  </TabsContent>
+                  
+                  <TabsContent value="instagram-posting" className="space-y-6">
+                    <Card>
+                      <CardContent className="p-6">
+                        <div className="text-center space-y-4">
+                          <h3 className="text-lg font-medium">Instagram Posting</h3>
+                          <p className="text-sm text-muted-foreground">
+                            Create and schedule posts for your Instagram account
+                          </p>
+                          <Button onClick={() => window.location.href = '/posting'}>
+                            Go to Posting Interface
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </TabsContent>
+                </>
               )}
 
               {platformAccess.facebook && (
                 <TabsContent value="facebook" className="space-y-6">
+                  {/* Using the original Facebook insights component */}
                   <FacebookInsights
                     data={displayData?.facebook || mockData?.facebook}
                     canAccessAds={session?.user?.plan === "PREMIUM_MONTHLY" || session?.user?.plan === "PREMIUM_YEARLY"}
                   />
+                  {/* Ads Analytics for Facebook if user has premium subscription */}
+                  {(session?.user?.plan === "PREMIUM_MONTHLY" || session?.user?.plan === "PREMIUM_YEARLY") && displayData?.facebook?.ads && (
+                    <div className="mt-8">
+                      <AdsAnalyticsComponent 
+                        data={displayData?.facebook?.ads || mockData?.facebook?.ads}
+                        platform="facebook"
+                      />
+                    </div>
+                  )}
                 </TabsContent>
               )}
 
@@ -504,6 +545,15 @@ export default function Dashboard() {
                     canAccessAds={session?.user?.plan === "PREMIUM_MONTHLY" || session?.user?.plan === "PREMIUM_YEARLY"}
                     error={displayData?.errors?.twitter}
                   />
+                  {/* Ads Analytics for Twitter if user has premium subscription */}
+                  {(session?.user?.plan === "PREMIUM_MONTHLY" || session?.user?.plan === "PREMIUM_YEARLY") && displayData?.twitter?.ads && (
+                    <div className="mt-8">
+                      <AdsAnalyticsComponent 
+                        data={displayData?.twitter?.ads || mockData?.twitter?.ads}
+                        platform="twitter"
+                      />
+                    </div>
+                  )}
                 </TabsContent>
               )}
 
@@ -514,6 +564,15 @@ export default function Dashboard() {
                     canAccessAds={session?.user?.plan === "PREMIUM_MONTHLY" || session?.user?.plan === "PREMIUM_YEARLY"}
                     error={displayData?.errors?.tiktok}
                   />
+                  {/* Ads Analytics for TikTok if user has premium subscription */}
+                  {(session?.user?.plan === "PREMIUM_MONTHLY" || session?.user?.plan === "PREMIUM_YEARLY") && displayData?.tiktok?.ads && (
+                    <div className="mt-8">
+                      <AdsAnalyticsComponent 
+                        data={displayData?.tiktok?.ads || mockData?.tiktok?.ads}
+                        platform="tiktok"
+                      />
+                    </div>
+                  )}
                 </TabsContent>
               )}
 
@@ -524,6 +583,15 @@ export default function Dashboard() {
                     canAccessAds={session?.user?.plan === "PREMIUM_MONTHLY" || session?.user?.plan === "PREMIUM_YEARLY"}
                     error={displayData?.errors?.amazon}
                   />
+                  {/* Ads Analytics for Amazon if user has premium subscription */}
+                  {(session?.user?.plan === "PREMIUM_MONTHLY" || session?.user?.plan === "PREMIUM_YEARLY") && displayData?.amazon?.ads && (
+                    <div className="mt-8">
+                      <AdsAnalyticsComponent 
+                        data={displayData?.amazon?.ads || mockData?.amazon?.ads}
+                        platform="amazon"
+                      />
+                    </div>
+                  )}
                 </TabsContent>
               )}
             </motion.div>

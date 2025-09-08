@@ -8,6 +8,60 @@ export class OAuthService {
   static async normalizeUrl(url: string): Promise<string> {
     return url.replace(/([^:]\/)\/+/g, '$1')
   }
+  /**
+   * Exchanges a short-lived token for a long-lived token (60-day expiration)
+   * @param shortLivedToken The short-lived token from initial OAuth flow
+   * @returns Long-lived token data with extended expiration
+   */
+  static async getLongLivedFacebookToken(shortLivedToken: string) {
+    try {
+      logger.info("Exchanging for long-lived Facebook token");
+      
+      const response = await fetch(`https://graph.facebook.com/v19.0/oauth/access_token`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          grant_type: "fb_exchange_token",
+          client_id: env.FACEBOOK_APP_ID,
+          client_secret: env.FACEBOOK_APP_SECRET,
+          fb_exchange_token: shortLivedToken,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.text();
+        logger.error("Failed to exchange for long-lived Facebook token", {
+          status: response.status,
+          statusText: response.statusText,
+          error: errorData,
+        });
+        throw new AuthError(`Failed to exchange for long-lived Facebook token: ${errorData}`);
+      }
+
+      const longLivedTokenData = await response.json();
+      
+      logger.info("Successfully obtained long-lived Facebook token", {
+        hasToken: !!longLivedTokenData.access_token,
+        expiresIn: longLivedTokenData.expires_in || '60 days (default)',
+      });
+      
+      // Default to 60 days (in seconds) if no expires_in is provided
+      if (!longLivedTokenData.expires_in) {
+        longLivedTokenData.expires_in = 60 * 24 * 60 * 60; // 60 days in seconds
+      }
+      
+      return longLivedTokenData;
+    } catch (error) {
+      logger.error("Error getting long-lived Facebook token", {
+        error: error instanceof Error ? error.message : String(error)
+      });
+      // Return null instead of throwing to allow fallback to short-lived token
+      return null;
+    }
+  }
+
   static async exchangeFacebookCode(code: string, redirectUri: string) {
     try {
       const body = new URLSearchParams({
@@ -911,6 +965,67 @@ export class OAuthService {
 
 
 
+  /**
+   * Refreshes a Twitter access token using a refresh token
+   * This helps extend the lifetime of Twitter API access
+   */
+  static async refreshTwitterToken(refreshToken: string) {
+    try {
+      logger.info("Refreshing Twitter access token");
+      
+      if (!env.TWITTER_CLIENT_ID || !env.TWITTER_CLIENT_SECRET) {
+        logger.error("Twitter OAuth credentials missing");
+        throw new AuthError("Twitter OAuth credentials not configured");
+      }
+      
+      const credentials = Buffer.from(`${env.TWITTER_CLIENT_ID}:${env.TWITTER_CLIENT_SECRET}`).toString('base64');
+      
+      const response = await fetch("https://api.twitter.com/2/oauth2/token", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "User-Agent": "AdInsights-App/1.0",
+          "Authorization": `Basic ${credentials}`,
+        },
+        body: new URLSearchParams({
+          grant_type: "refresh_token",
+          refresh_token: refreshToken,
+          client_id: env.TWITTER_CLIENT_ID
+        }),
+        signal: AbortSignal.timeout(15000),
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.text();
+        logger.error("Twitter token refresh failed", { 
+          status: response.status,
+          statusText: response.statusText,
+          error: errorData 
+        });
+        return null;
+      }
+      
+      const tokenData = await response.json();
+      logger.info("Twitter token refresh successful", { 
+        hasAccessToken: !!tokenData.access_token,
+        hasRefreshToken: !!tokenData.refresh_token,
+        expiresIn: tokenData.expires_in || 7200,
+        scope: tokenData.scope
+      });
+      
+      return tokenData;
+    } catch (error) {
+      logger.error("Twitter token refresh error", {
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack
+        } : error
+      });
+      return null;
+    }
+  }
+
   static async exchangeTwitterCode(code: string, redirectUri: string, codeVerifier?: string) {
     try {
       // Normalize the redirect URI for compatibility with Vercel deployments
@@ -929,11 +1044,13 @@ export class OAuthService {
       });
 
       // Twitter/X OAuth 2.0 PKCE token exchange
+      const credentials = Buffer.from(`${env.TWITTER_CLIENT_ID}:${env.TWITTER_CLIENT_SECRET}`).toString('base64');
       const response = await fetch("https://api.twitter.com/2/oauth2/token", {
         method: "POST",
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
           "User-Agent": "AdInsights-App/1.0",
+          "Authorization": `Basic ${credentials}`,
         },
         body: new URLSearchParams({
           grant_type: "authorization_code",

@@ -299,6 +299,8 @@ export interface AuthProviderInput {
   accessToken: string
   refreshToken?: string
   expiresAt?: Date
+  tokenExpiresIn?: number // Time in seconds until token expires
+  hasRefreshToken?: boolean // Whether the provider has a refresh token
   // Platform-specific data
   advertisingAccountId?: string
   businessAccounts?: any // Will be serialized as JSON string

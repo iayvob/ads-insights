@@ -3,6 +3,7 @@ import { UserService } from "@/services/user"
 import { addSecurityHeaders, createSuccessResponse } from "@/controllers/api-response"
 import { ServerSessionService } from "@/services/session-server";
 import { AuthSession } from "@/validations/types";
+import { logger } from "@/config/logger";
 
 export const dynamic = "force-dynamic";
 export const dynamicParams = true;
@@ -21,9 +22,9 @@ export async function POST(request: NextRequest) {
     const instagramProvider = providers.find(p => p.provider === 'instagram');
 
     if (!instagramProvider) {
-      console.log("Instagram not connected for user", { userId: session.userId });
+      logger.info("Instagram not connected for user", { userId: session.userId });
       return addSecurityHeaders(createSuccessResponse(
-        { success: true }, 
+        { success: true },
         "Instagram not connected"
       ));
     }
@@ -37,7 +38,7 @@ export async function POST(request: NextRequest) {
           { method: "DELETE" },
         )
       } catch (error) {
-        console.warn("Failed to revoke Instagram token", { error, userId: session.userId })
+        logger.warn("Failed to revoke Instagram token", { error, userId: session.userId })
       }
     }
 
@@ -47,7 +48,7 @@ export async function POST(request: NextRequest) {
     // Remove Instagram from connected platforms in session
     const updatedConnectedPlatforms = { ...session.connectedPlatforms };
     delete updatedConnectedPlatforms.instagram;
-    
+
     const updatedSession: AuthSession = {
       ...session,
       connectedPlatforms: updatedConnectedPlatforms
@@ -58,7 +59,7 @@ export async function POST(request: NextRequest) {
     return addSecurityHeaders(withSession)
 
   } catch (error) {
-    console.error("Instagram logout error:", error)
+    logger.error("Instagram logout error:", error)
     return addSecurityHeaders(NextResponse.json({ error: "Failed to logout from Instagram" }, { status: 500 }))
   }
 }

@@ -62,14 +62,31 @@ export const GET = withErrorHandling(async (request: NextRequest) => {
       state: params.state
     });
 
-    // Exchange code for tokens
+    // Exchange code for short-lived token
     const tokenData = await OAuthService.exchangeFacebookCode(params.code, redirectUri)
+    
+    // Exchange short-lived token for long-lived token (60 days validity)
+    let finalTokenData = tokenData;
+    const longLivedTokenData = await OAuthService.getLongLivedFacebookToken(tokenData.access_token);
+    
+    if (longLivedTokenData && longLivedTokenData.access_token) {
+      logger.info("Using long-lived Facebook token", {
+        expiresIn: longLivedTokenData.expires_in,
+        expirationDate: new Date(Date.now() + longLivedTokenData.expires_in * 1000).toISOString()
+      });
+      finalTokenData = longLivedTokenData;
+    } else {
+      logger.warn("Could not obtain long-lived Facebook token, using short-lived token", {
+        expiresIn: tokenData.expires_in,
+        expirationDate: new Date(Date.now() + tokenData.expires_in * 1000).toISOString()
+      });
+    }
 
     // Get comprehensive user data with analytics info
-    const userData = await OAuthService.getFacebookUserData(tokenData.access_token)
+    const userData = await OAuthService.getFacebookUserData(finalTokenData.access_token)
 
     // Get business data with enhanced analytics
-    const businessData = await OAuthService.getFacebookBusinessData(tokenData.access_token)
+    const businessData = await OAuthService.getFacebookBusinessData(finalTokenData.access_token)
 
     // Find or create user 
     let user
@@ -97,8 +114,9 @@ export const GET = withErrorHandling(async (request: NextRequest) => {
       }
     }
 
-    // Calculate token expiration
-    const expiresAt = new Date(Date.now() + (tokenData.expires_in || 3600) * 1000)
+    // Calculate token expiration - use long expiration for long-lived tokens
+    const expiresIn = finalTokenData.expires_in || 3600;
+    const expiresAt = new Date(Date.now() + expiresIn * 1000)
 
     // Save comprehensive auth provider data for analytics
     await UserService.upsertAuthProvider(user.id, {
@@ -111,7 +129,8 @@ export const GET = withErrorHandling(async (request: NextRequest) => {
       canManageAds: (businessData.adAccounts || []).length > 0,
       canPublishContent: (businessData.pages || []).length > 0,
       canAccessInsights: (businessData.adAccounts || []).length > 0,
-      accessToken: tokenData.access_token,
+      accessToken: finalTokenData.access_token,
+      refreshToken: finalTokenData.refresh_token || null,
       expiresAt: expiresAt,
       advertisingAccountId: businessData.primaryAdAccountId,
       businessAccounts: {
@@ -162,9 +181,10 @@ export const GET = withErrorHandling(async (request: NextRequest) => {
             can_manage_ads: (businessData.adAccounts || []).length > 0,
           } as any,
           account_tokens: {
-            access_token: tokenData.access_token,
-            refresh_token: tokenData.refresh_token,
-            expires_at: Date.now() + (tokenData.expires_in || 3600) * 1000,
+            access_token: finalTokenData.access_token,
+            refresh_token: finalTokenData.refresh_token || null,
+            expires_at: Date.now() + expiresIn * 1000,
+            is_long_lived: !!longLivedTokenData?.access_token,
           },
           connected_at: new Date().toISOString(),
           last_updated: new Date().toISOString()

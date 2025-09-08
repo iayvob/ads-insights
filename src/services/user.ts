@@ -549,4 +549,59 @@ export class UserService {
     const threshold = new Date(Date.now() + APP_CONFIG.TOKEN_REFRESH_THRESHOLD)
     return provider.expiresAt <= threshold
   }
+  
+  /**
+   * Get a specific provider by its ID
+   */
+  static async getProviderById(providerId: string): Promise<AuthProvider | null> {
+    try {
+      return await prisma.authProvider.findUnique({
+        where: { id: providerId }
+      });
+    } catch (error) {
+      logger.error("Failed to get provider by ID", { 
+        providerId, 
+        error: error instanceof Error ? error.message : String(error) 
+      });
+      return null;
+    }
+  }
+  
+  /**
+   * Update a provider's access token and expiration
+   */
+  static async updateProviderToken(
+    providerId: string, 
+    accessToken: string, 
+    refreshToken: string | null = null,
+    expiresAt: Date
+  ): Promise<AuthProvider | null> {
+    try {
+      const provider = await prisma.authProvider.update({
+        where: { id: providerId },
+        data: {
+          accessToken,
+          refreshToken,
+          expiresAt,
+          updatedAt: new Date()
+        }
+      });
+      
+      logger.info("Provider token updated", {
+        providerId,
+        provider: provider.provider,
+        hasAccessToken: !!provider.accessToken,
+        hasRefreshToken: !!provider.refreshToken,
+        expiresAt: provider.expiresAt
+      });
+      
+      return provider;
+    } catch (error) {
+      logger.error("Failed to update provider token", { 
+        providerId, 
+        error: error instanceof Error ? error.message : String(error) 
+      });
+      return null;
+    }
+  }
 }
