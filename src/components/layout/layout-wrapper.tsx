@@ -12,7 +12,7 @@ export function LayoutWrapper({ children }: LayoutWrapperProps) {
   const pathname = usePathname()
   
   // Define routes where header should be shown
-  const headerRoutes = ["/profile", "/subscription", "/dashboard"]
+  const headerRoutes = ["/profile", "/subscription", "/dashboard", "/posting"]
   const showHeader = headerRoutes.includes(pathname)
 
   return (

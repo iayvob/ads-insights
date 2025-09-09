@@ -521,20 +521,11 @@ export default function Dashboard() {
 
               {platformAccess.facebook && (
                 <TabsContent value="facebook" className="space-y-6">
-                  {/* Using the original Facebook insights component */}
+                  {/* Using the Facebook insights component that combines posts and ads */}
                   <FacebookInsights
                     data={displayData?.facebook || mockData?.facebook}
                     canAccessAds={session?.user?.plan === "PREMIUM_MONTHLY" || session?.user?.plan === "PREMIUM_YEARLY"}
                   />
-                  {/* Ads Analytics for Facebook if user has premium subscription */}
-                  {(session?.user?.plan === "PREMIUM_MONTHLY" || session?.user?.plan === "PREMIUM_YEARLY") && displayData?.facebook?.ads && (
-                    <div className="mt-8">
-                      <AdsAnalyticsComponent 
-                        data={displayData?.facebook?.ads || mockData?.facebook?.ads}
-                        platform="facebook"
-                      />
-                    </div>
-                  )}
                 </TabsContent>
               )}
 
