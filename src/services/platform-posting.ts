@@ -105,7 +105,7 @@ export class PlatformPostingService {
     error?: string
   }> {
     const connection = this.getPlatformConnection(session, platform)
-    
+
     if (!connection || !this.isConnectionValid(connection)) {
       return {
         success: false,
@@ -143,12 +143,12 @@ export class PlatformPostingService {
     content: any
   ) {
     const { accessToken, pageId } = connection
-    
+
     // Facebook Graph API posting logic
     const pageAccessTokenResponse = await fetch(
       `https://graph.facebook.com/v19.0/${pageId}?fields=access_token&access_token=${accessToken}`
     )
-    
+
     const pageTokenData = await pageAccessTokenResponse.json()
     const pageAccessToken = pageTokenData.access_token
 
@@ -176,7 +176,7 @@ export class PlatformPostingService {
     )
 
     const result = await response.json()
-    
+
     if (result.id) {
       return {
         success: true,
@@ -199,58 +199,135 @@ export class PlatformPostingService {
     content: any
   ) {
     const { accessToken, userId } = connection
-    
-    // Instagram Basic Display API posting logic
-    // Note: Actual Instagram posting requires Instagram Business API
-    
-    if (content.media && content.media.length > 0) {
-      // Create media container first
-      const mediaContainer = await fetch(
-        `https://graph.facebook.com/v19.0/${userId}/media`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            image_url: content.media[0].url,
-            caption: content.text || '',
-            access_token: accessToken
-          })
-        }
-      )
 
-      const containerResult = await mediaContainer.json()
-      
-      if (containerResult.id) {
-        // Publish the media
-        const publishResponse = await fetch(
-          `https://graph.facebook.com/v19.0/${userId}/media_publish`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              creation_id: containerResult.id,
-              access_token: accessToken
-            })
-          }
-        )
-
-        const publishResult = await publishResponse.json()
-        
+    // Instagram Graph API posting logic using the latest Meta API standards
+    try {
+      // Step 0: Get Instagram Business Account ID
+      // In production, this would be a call to Graph API
+      if (!userId || !accessToken) {
         return {
-          success: true,
-          platformPostId: publishResult.id,
-          url: `https://instagram.com/p/${publishResult.id}`
-        }
+          success: false,
+          error: 'Missing Instagram user ID or access token'
+        };
       }
-    }
-    
-    return {
-      success: false,
-      error: 'Instagram posting failed'
+
+      const igBusinessAccount = await this.getInstagramBusinessAccount(userId, accessToken);
+
+      if (!igBusinessAccount) {
+        return {
+          success: false,
+          error: 'Instagram Business Account not found. Make sure your Instagram account is connected to a Facebook Page.'
+        };
+      }
+
+      if (content.media && content.media.length > 0) {
+        // Determine post type
+        const isCarousel = content.media.length > 1;
+        const isVideo = content.media[0].type === 'video';
+
+        if (isCarousel) {
+          // Step 1: Create container for each carousel item
+          const childContainers = [];
+
+          for (const media of content.media) {
+            const childContainer = await fetch(
+              `https://graph.facebook.com/v19.0/${igBusinessAccount}/media`,
+              {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  [media.type === 'video' ? 'video_url' : 'image_url']: media.url,
+                  access_token: accessToken
+                })
+              }
+            );
+
+            const childResult = await childContainer.json();
+
+            if (childResult.error) {
+              return {
+                success: false,
+                error: `Failed to create media container: ${childResult.error.message}`
+              };
+            }
+
+            childContainers.push(childResult.id);
+          }
+
+          // Step 2: Create carousel container
+          const carouselContainer = await fetch(
+            `https://graph.facebook.com/v19.0/${igBusinessAccount}/media`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                media_type: 'CAROUSEL',
+                caption: content.text || '',
+                children: childContainers,
+                access_token: accessToken
+              })
+            }
+          );
+
+          const containerResult = await carouselContainer.json();
+
+          if (containerResult.error) {
+            return {
+              success: false,
+              error: `Failed to create carousel container: ${containerResult.error.message}`
+            };
+          }
+
+          // Step 3: Publish the carousel
+          return await this.publishInstagramMedia(igBusinessAccount, accessToken, containerResult.id, 'carousel');
+        } else {
+          // Single media post (image or video)
+          // Step 1: Create media container
+          const mediaContainer = await fetch(
+            `https://graph.facebook.com/v19.0/${igBusinessAccount}/media`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                [isVideo ? 'video_url' : 'image_url']: content.media[0].url,
+                caption: content.text || '',
+                access_token: accessToken
+              })
+            }
+          );
+
+          const containerResult = await mediaContainer.json();
+
+          if (containerResult.error) {
+            return {
+              success: false,
+              error: `Failed to create media container: ${containerResult.error.message}`
+            };
+          }
+
+          // Step 2: Publish the media
+          return await this.publishInstagramMedia(igBusinessAccount, accessToken, containerResult.id, isVideo ? 'video' : 'image');
+        }
+      } else {
+        // Instagram requires media for feed posts
+        // For text-only content, we'd create a Story with text overlay
+        return {
+          success: false,
+          error: 'Instagram requires media for posting. Text-only posts are not supported.'
+        };
+      }
+    } catch (error) {
+      console.error("Instagram posting error:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Instagram posting failed'
+      };
     }
   }
 
@@ -262,7 +339,7 @@ export class PlatformPostingService {
     content: any
   ) {
     const { accessToken } = connection
-    
+
     // Twitter API v2 posting logic
     const tweetData: any = {
       text: content.text || ''
@@ -288,7 +365,7 @@ export class PlatformPostingService {
     )
 
     const result = await response.json()
-    
+
     if (result.data?.id) {
       return {
         success: true,
@@ -300,6 +377,105 @@ export class PlatformPostingService {
         success: false,
         error: result.errors?.[0]?.detail || 'Twitter posting failed'
       }
+    }
+  }
+
+  /**
+   * Get Instagram Business Account ID from user ID and access token
+   */
+  private static async getInstagramBusinessAccount(userId: string, accessToken: string): Promise<string | null> {
+    try {
+      // First, get the Facebook Pages the user has access to
+      const pagesResponse = await fetch(
+        `https://graph.facebook.com/v19.0/me/accounts?access_token=${accessToken}`
+      );
+
+      const pagesData = await pagesResponse.json();
+
+      if (pagesData.error || !pagesData.data || pagesData.data.length === 0) {
+        console.error("No Facebook Pages found:", pagesData.error);
+        return null;
+      }
+
+      // For each page, check if it has an Instagram Business Account
+      for (const page of pagesData.data) {
+        const igAccountResponse = await fetch(
+          `https://graph.facebook.com/v19.0/${page.id}?fields=instagram_business_account&access_token=${page.access_token}`
+        );
+
+        const igAccountData = await igAccountResponse.json();
+
+        if (igAccountData.instagram_business_account?.id) {
+          return igAccountData.instagram_business_account.id;
+        }
+      }
+
+      console.error("No Instagram Business Account found for user");
+      return null;
+    } catch (error) {
+      console.error("Error retrieving Instagram Business Account ID:", error);
+      return null;
+    }
+  }
+
+  /**
+   * Publish media to Instagram using creation ID
+   */
+  private static async publishInstagramMedia(
+    igBusinessAccountId: string,
+    accessToken: string,
+    creationId: string,
+    mediaType: 'image' | 'video' | 'carousel'
+  ): Promise<{
+    success: boolean;
+    platformPostId?: string;
+    url?: string;
+    error?: string;
+  }> {
+    try {
+      // Publish the media
+      const publishResponse = await fetch(
+        `https://graph.facebook.com/v19.0/${igBusinessAccountId}/media_publish`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            creation_id: creationId,
+            access_token: accessToken
+          })
+        }
+      );
+
+      const publishResult = await publishResponse.json();
+
+      if (publishResult.error) {
+        return {
+          success: false,
+          error: publishResult.error.message || 'Failed to publish Instagram media'
+        };
+      }
+
+      // Get media details
+      const mediaResponse = await fetch(
+        `https://graph.facebook.com/v19.0/${publishResult.id}?fields=id,permalink&access_token=${accessToken}`
+      );
+
+      const mediaDetails = await mediaResponse.json();
+      const permalink = mediaDetails.permalink || `https://instagram.com/p/${publishResult.id}`;
+
+      return {
+        success: true,
+        platformPostId: publishResult.id,
+        url: permalink
+      };
+    } catch (error) {
+      console.error("Error publishing Instagram media:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to publish Instagram media'
+      };
     }
   }
 }

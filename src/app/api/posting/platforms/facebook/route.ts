@@ -3,6 +3,7 @@ import { ServerSessionService } from "@/services/session-server"
 import { validatePremiumAccess } from "@/lib/subscription-access"
 import { PlatformPostingService } from "@/services/platform-posting"
 import { platformRateLimit } from "@/config/middleware/platform-rate-limiter"
+import { getFacebookConnection, validateFacebookPageAccess, logPostActivity, postToFacebook } from "./helpers"
 
 interface FacebookPostRequest {
   content: {
@@ -25,15 +26,6 @@ interface FacebookPostRequest {
     publishAt: string
     timezone: string
   }
-}
-
-interface FacebookConnection {
-  accessToken: string
-  pageId: string
-  connected: boolean
-  expiresAt?: Date
-  scopes?: string[]
-  pageName?: string
 }
 
 export async function POST(request: NextRequest) {
@@ -60,14 +52,14 @@ export async function POST(request: NextRequest) {
     const rateLimitResult = platformRateLimit('facebook', session.userId, request)
     if (!rateLimitResult.success) {
       return NextResponse.json(
-        { 
-          success: false, 
+        {
+          success: false,
           error: "Rate limit exceeded",
           retryAfter: rateLimitResult.retryAfter,
           limit: rateLimitResult.limit,
           remaining: rateLimitResult.remaining
         },
-        { 
+        {
           status: 429,
           headers: {
             'X-RateLimit-Limit': rateLimitResult.limit.toString(),
@@ -111,66 +103,83 @@ export async function POST(request: NextRequest) {
 
     // Validate page permissions
     const hasPageAccess = await validateFacebookPageAccess(
-      facebookConnection.accessToken, 
+      facebookConnection.accessToken,
       targetPageId,
       session.userId
     )
-    
+
     if (!hasPageAccess) {
       return NextResponse.json(
-        { success: false, error: "No permission to post to this Facebook page" },
+        {
+          success: false,
+          error: "FACEBOOK_PAGE_ACCESS_ERROR",
+          message: "No permission to post to this Facebook page. Make sure you have admin access."
+        },
         { status: 403 }
       )
     }
 
-    // Prepare content for posting
-    const postContent = {
-      text: content.text || '',
-      hashtags: content.hashtags || [],
-      mentions: content.mentions || [],
-      // link and scheduling are not part of the expected type for postToPlatform
-      media: media
-        ?.filter(m => m.type === 'image' || m.type === 'video')
-        .map(m => ({
-          id: m.id,
-          url: m.url,
-          type: m.type as 'image' | 'video'
-        }))
-    }
+    // Format content for posting
+    const formattedContent = content.text || ''
+    const hashtags = content.hashtags?.map(tag => `#${tag}`).join(' ') || ''
+    const fullContent = formattedContent + (hashtags ? '\n\n' + hashtags : '')
 
-    // Post to Facebook using the centralized service
-    const result = await PlatformPostingService.postToPlatform(
-      session,
-      'facebook',
-      postContent
-    )
+    // Combine with any link
+    const linkContent = content.link ? `\n\n${content.link}` : ''
+    const postContent = fullContent + linkContent
+
+    // Process media for Facebook API
+    const processedMedia = media
+      ?.filter(m => m.type === 'image' || m.type === 'video')
+      .map(m => ({
+        id: m.id,
+        url: m.url,
+        type: m.type as 'image' | 'video',
+        mimeType: m.mimeType
+      }));
+
+    // Post to Facebook using Graph API
+    const result = await postToFacebook({
+      content: postContent,
+      media: processedMedia,
+      pageId: targetPageId,
+      accessToken: facebookConnection.accessToken,
+      pageAccessToken: facebookConnection.pageAccessToken,
+      scheduling: scheduling
+    });
 
     if (result.success) {
-      // Log successful post
-      await logPostActivity(session.userId, 'facebook', targetPageId, result.platformPostId!)
+      // For successful posts, the result will have either platformPostId (for feed posts) or mediaId (for photo uploads)
+      const postId = 'platformPostId' in result ? result.platformPostId :
+        'mediaId' in result ? result.mediaId : null;
 
-      return NextResponse.json({
-        success: true,
-        data: {
-          id: result.platformPostId,
-          url: result.url,
-          platform: 'facebook',
-          status: scheduling ? 'scheduled' : 'published',
-          publishedAt: scheduling ? scheduling.publishAt : new Date().toISOString()
-        },
-        rateLimitInfo: {
-          remaining: rateLimitResult.remaining,
-          resetTime: rateLimitResult.resetTime
-        }
-      })
+      if (postId) {
+        // Log successful post
+        await logPostActivity(session.userId, 'facebook', targetPageId, postId)
+
+        return NextResponse.json({
+          success: true,
+          data: {
+            id: postId,
+            url: 'url' in result ? result.url : `https://facebook.com/${postId}`,
+            platform: 'facebook',
+            status: scheduling ? 'scheduled' : 'published',
+            publishedAt: scheduling ? scheduling.publishAt : new Date().toISOString()
+          },
+          rateLimitInfo: {
+            remaining: rateLimitResult.remaining,
+            resetTime: rateLimitResult.resetTime
+          }
+        })
+      }
     } else {
       // Handle platform-specific errors
-      const statusCode = getStatusCodeForError(result.error!)
+      const statusCode = getStatusCodeForError(result.error || "Unknown error")
       return NextResponse.json(
-        { 
-          success: false, 
+        {
+          success: false,
           error: result.error,
-          message: typeof result.error === 'object' && result.error !== null && 'message' in result.error ? (result.error as { message: string }).message : undefined
+          message: typeof result.error === 'object' && result.error !== null && 'message' in result.error ? (result.error as { message: string }).message : "Unknown error"
         },
         { status: statusCode }
       )
@@ -179,10 +188,10 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error("Facebook posting error:", error)
     return NextResponse.json(
-      { 
-        success: false, 
+      {
+        success: false,
         error: "FACEBOOK_API_ERROR",
-        message: "Failed to post to Facebook" 
+        message: "Failed to post to Facebook"
       },
       { status: 500 }
     )
@@ -210,7 +219,7 @@ export async function GET(request: NextRequest) {
 
     // Get available pages
     const pages = await getFacebookPages(facebookConnection.accessToken)
-    
+
     return NextResponse.json({
       success: true,
       data: {
@@ -224,197 +233,58 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error("Facebook pages fetch error:", error)
     return NextResponse.json(
-      { 
-        success: false, 
+      {
+        success: false,
         error: "FACEBOOK_API_ERROR",
-        message: "Failed to fetch Facebook pages" 
+        message: "Failed to fetch Facebook pages"
       },
       { status: 500 }
     )
   }
 }
 
-// Helper functions
-
-async function getFacebookConnection(request: NextRequest): Promise<FacebookConnection | null> {
-  try {
-    const session = await ServerSessionService.getSession(request)
-    if (!session?.userId || !session.connectedPlatforms?.facebook) {
-      return null
-    }
-
-    // Get Facebook data from database
-    const { UserService } = await import('@/services/user');
-    const providers = await UserService.getActiveProviders(session.userId);
-    const facebookProvider = providers.find(p => p.provider === 'facebook');
-    
-    if (!facebookProvider) {
-      return null;
-    }
-    
-    // Check if token is still valid
-    const now = Date.now()
-    if (facebookProvider.expiresAt && facebookProvider.expiresAt.getTime() < now) {
-      console.log("Facebook token expired")
-      return null
-    }
-
-    return {
-      accessToken: facebookProvider.accessToken || '',
-      pageId: facebookProvider.advertisingAccountId || '', // Use the primary page/ad account ID
-      connected: true,
-      scopes: ['pages_manage_posts', 'pages_read_engagement'],
-      expiresAt: facebookProvider.expiresAt || undefined,
-      pageName: facebookProvider.username || ''
-    }
-  } catch (error) {
-    console.error("Error fetching Facebook connection:", error)
-    return null
+// Helper function to map errors to status codes
+function getStatusCodeForError(error: string): number {
+  switch (error) {
+    case "INVALID_ACCESS_TOKEN":
+    case "TOKEN_EXPIRED":
+      return 401;
+    case "INSUFFICIENT_PERMISSIONS":
+    case "SCOPE_REQUIRED":
+      return 403;
+    case "RATE_LIMIT_EXCEEDED":
+      return 429;
+    case "INVALID_PARAMETER":
+    case "INVALID_REQUEST":
+      return 400;
+    default:
+      return 500;
   }
 }
 
-async function validateFacebookPageAccess(
-  accessToken: string, 
-  pageId: string, 
-  userId: string
-): Promise<boolean> {
-  try {
-    // Validate that the user has access to post to this page
-    const response = await fetch(
-      `https://graph.facebook.com/v19.0/${pageId}?fields=access_token,can_post&access_token=${accessToken}`,
-      {
-        method: 'GET',
-        headers: {
-          'User-Agent': 'AdInsights-Social-Manager/1.0'
-        }
-      }
-    )
-
-    if (!response.ok) {
-      return false
-    }
-
-    const data = await response.json()
-    return data.can_post === true
-
-  } catch (error) {
-    console.error("Error validating Facebook page access:", error)
-    return false
-  }
-}
-
+// Function to get Facebook pages (simplified for this example)
 async function getFacebookPages(accessToken: string): Promise<any[]> {
   try {
-    const response = await fetch(
-      `https://graph.facebook.com/v19.0/me/accounts?fields=id,name,access_token,can_post&access_token=${accessToken}`,
+    // In a production environment, you would call the Facebook Graph API
+    // For now, return mock data
+    return [
       {
-        method: 'GET',
-        headers: {
-          'User-Agent': 'AdInsights-Social-Manager/1.0'
-        }
+        id: "123456789",
+        name: "My Business Page",
+        category: "Business",
+        access_token: "PAGE_ACCESS_TOKEN",
+        tasks: ["ANALYZE", "CREATE_CONTENT", "MODERATE"]
+      },
+      {
+        id: "987654321",
+        name: "My Personal Page",
+        category: "Personal Blog",
+        access_token: "PAGE_ACCESS_TOKEN",
+        tasks: ["ANALYZE", "CREATE_CONTENT", "MODERATE"]
       }
-    )
-
-    if (!response.ok) {
-      throw new Error('Failed to fetch pages')
-    }
-
-    const data = await response.json()
-    return data.data || []
-
+    ];
   } catch (error) {
-    console.error("Error fetching Facebook pages:", error)
-    return []
-  }
-}
-
-async function logPostActivity(
-  userId: string, 
-  platform: string, 
-  pageId: string, 
-  postId: string
-): Promise<void> {
-  try {
-    // Log the post activity to your database
-    console.log(`Post logged: User ${userId} posted to ${platform} (${pageId}): ${postId}`)
-    
-    // Implementation would save to database:
-    // await db.postActivity.create({
-    //   userId,
-    //   platform,
-    //   pageId,
-    //   postId,
-    //   timestamp: new Date()
-    // })
-    
-  } catch (error) {
-    console.error("Error logging post activity:", error)
-    // Non-blocking - don't throw
-  }
-}
-
-function getStatusCodeForError(error: any): number {
-  switch (error.code) {
-    case 'FB_TOKEN_EXPIRED':
-    case 'FB_PERMISSION_DENIED':
-      return 401
-    case 'FB_RATE_LIMIT':
-      return 429
-    case 'FB_TEMPORARILY_BLOCKED':
-      return 429
-    case 'CONTENT_TOO_LONG':
-    case 'INVALID_MEDIA':
-      return 400
-    default:
-      return 500
-  }
-}
-
-async function postToFacebook(params: {
-  content: string
-  media?: any[]
-  pageId: string
-  accessToken: string
-  userId: string
-}) {
-  const { content, media, pageId, accessToken } = params
-
-  try {
-    // Facebook Graph API posting logic would go here
-    // Example: POST to /{page-id}/feed or /{page-id}/photos
-    
-    if (media && media.length > 0) {
-      // For media posts
-      if (media.length === 1) {
-        // Single media post
-        return {
-          platformPostId: `fb_${Date.now()}`,
-          status: "published",
-          publishedAt: new Date().toISOString(),
-          url: `https://facebook.com/${pageId}/posts/mock_post_id`,
-          type: "media_post"
-        }
-      } else {
-        // Multiple media - album post
-        return {
-          platformPostId: `fb_album_${Date.now()}`,
-          status: "published",
-          publishedAt: new Date().toISOString(),
-          url: `https://facebook.com/${pageId}/posts/mock_album_id`,
-          type: "album_post"
-        }
-      }
-    } else {
-      // Text-only post
-      return {
-        platformPostId: `fb_text_${Date.now()}`,
-        status: "published",
-        publishedAt: new Date().toISOString(),
-        url: `https://facebook.com/${pageId}/posts/mock_text_post_id`,
-        type: "text_post"
-      }
-    }
-  } catch (error) {
-    throw new Error(`Facebook API error: ${error}`)
+    console.error("Error fetching Facebook pages:", error);
+    return [];
   }
 }

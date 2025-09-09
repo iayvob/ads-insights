@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from "next/server"
 import { ServerSessionService } from "@/services/session-server"
 import { validatePremiumAccess } from "@/lib/subscription-access"
+import { platformRateLimit } from "@/config/middleware/platform-rate-limiter"
+import { getInstagramConnection, validateInstagramPermissions, postToInstagram, logPostActivity } from "./helpers"
 
 export async function POST(request: NextRequest) {
   try {
+    // Authentication check
     const session = await ServerSessionService.getSession(request)
     if (!session?.userId) {
       return NextResponse.json(
@@ -12,6 +15,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Premium access validation
     const premiumAccess = await validatePremiumAccess(session.userId, "posting")
     if (!premiumAccess.hasAccess) {
       return NextResponse.json(
@@ -20,8 +24,32 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Rate limiting
+    const rateLimitResult = platformRateLimit('instagram', session.userId, request)
+    if (!rateLimitResult.success) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Rate limit exceeded",
+          retryAfter: rateLimitResult.retryAfter,
+          limit: rateLimitResult.limit,
+          remaining: rateLimitResult.remaining
+        },
+        {
+          status: 429,
+          headers: {
+            'X-RateLimit-Limit': rateLimitResult.limit.toString(),
+            'X-RateLimit-Remaining': rateLimitResult.remaining.toString(),
+            'X-RateLimit-Reset': new Date(rateLimitResult.resetTime).toISOString(),
+            'Retry-After': rateLimitResult.retryAfter?.toString() || '3600'
+          }
+        }
+      )
+    }
+
+    // Parse request body
     const body = await request.json()
-    const { content, media, accessToken } = body
+    const { content, media } = body
 
     // Validate Instagram-specific requirements
     if (!content && (!media || media.length === 0)) {
@@ -40,97 +68,168 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Validate Instagram permissions
+    const hasPermissions = await validateInstagramPermissions(
+      instagramConnection.accessToken || '',
+      session.userId
+    )
+
+    if (!hasPermissions) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "INSTAGRAM_PERMISSION_ERROR",
+          message: "Insufficient permissions to post to Instagram. Make sure your Instagram account is a Business or Creator account connected to a Facebook Page."
+        },
+        { status: 403 }
+      )
+    }
+
+    // Validate media requirements
+    if (media && media.length > 0) {
+      // Check for valid media types and formats
+      const validMediaTypes = ['image', 'video'];
+      const invalidMedia = media.filter((m: { type: string }) => !validMediaTypes.includes(m.type));
+
+      if (invalidMedia.length > 0) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "INVALID_MEDIA_TYPE",
+            message: "Instagram only supports image and video content types"
+          },
+          { status: 400 }
+        )
+      }
+
+      // Check carousel limitations (max 10 items)
+      if (media.length > 10) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "MEDIA_LIMIT_EXCEEDED",
+            message: "Instagram carousel posts can contain a maximum of 10 media items"
+          },
+          { status: 400 }
+        )
+      }
+
+      // Check aspect ratio requirements (should be between 4:5 and 1.91:1 for feed posts)
+      for (const item of media) {
+        if (item.type === 'image' && item.dimensions) {
+          const { width, height } = item.dimensions;
+          if (width && height) {
+            const aspectRatio = width / height;
+
+            // Instagram feed post aspect ratio limits
+            if (aspectRatio < 0.8 || aspectRatio > 1.91) {
+              return NextResponse.json(
+                {
+                  success: false,
+                  error: "INVALID_ASPECT_RATIO",
+                  message: "Instagram images must have an aspect ratio between 4:5 and 1.91:1"
+                },
+                { status: 400 }
+              )
+            }
+          }
+        }
+      }
+    }
+
     // Post to Instagram
     const result = await postToInstagram({
       content,
       media,
-      accessToken: accessToken || instagramConnection.accessToken,
+      accessToken: instagramConnection.accessToken || '',
       userId: session.userId
     })
 
-    return NextResponse.json({
-      success: true,
-      data: result,
-      message: "Successfully posted to Instagram"
-    })
+    // The helper function now returns objects with success property
+    if ('success' in result && result.success) {
+      // Log successful post
+      if (result.platformPostId) {
+        await logPostActivity(session.userId, result.platformPostId);
+      }
+
+      return NextResponse.json({
+        success: true,
+        data: {
+          id: result.platformPostId,
+          url: result.url,
+          platform: 'instagram',
+          status: result.status,
+          publishedAt: result.publishedAt,
+          type: result.type
+        },
+        message: "Successfully posted to Instagram",
+        rateLimitInfo: {
+          remaining: rateLimitResult.remaining,
+          resetTime: rateLimitResult.resetTime
+        }
+      })
+    } else {
+      // Handle errors
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'error' in result ? result.error : "Failed to post to Instagram"
+        },
+        { status: 500 }
+      )
+    }
 
   } catch (error) {
     console.error("Instagram posting error:", error)
     return NextResponse.json(
-      { success: false, error: "Failed to post to Instagram" },
+      {
+        success: false,
+        error: "INSTAGRAM_API_ERROR",
+        message: "Failed to post to Instagram"
+      },
       { status: 500 }
     )
   }
 }
 
-async function getInstagramConnection(request: NextRequest) {
+// GET endpoint to retrieve Instagram account information
+export async function GET(request: NextRequest) {
   try {
     const session = await ServerSessionService.getSession(request)
-    if (!session?.userId || !session.connectedPlatforms?.instagram) {
-      return null
+    if (!session?.userId) {
+      return NextResponse.json(
+        { success: false, error: "Authentication required" },
+        { status: 401 }
+      )
     }
 
-    // Get Instagram data from database
-    const { UserService } = await import('@/services/user');
-    const providers = await UserService.getActiveProviders(session.userId);
-    const instagramProvider = providers.find(p => p.provider === 'instagram');
-    
-    if (!instagramProvider) {
-      return null;
-    }
-    
-    // Check if token is still valid
-    const now = Date.now()
-    if (instagramProvider.expiresAt && instagramProvider.expiresAt.getTime() < now) {
-      console.log("Instagram token expired")
-      return null
+    const instagramConnection = await getInstagramConnection(request)
+    if (!instagramConnection) {
+      return NextResponse.json(
+        { success: false, error: "Instagram account not connected" },
+        { status: 400 }
+      )
     }
 
-    return {
-      accessToken: instagramProvider.accessToken,
-      userId: instagramProvider.providerId,
-      username: instagramProvider.username,
-      connected: true,
-      expiresAt: instagramProvider.expiresAt
-    }
-  } catch (error) {
-    console.error("Error fetching Instagram connection:", error)
-    return null
-  }
-}
-
-async function postToInstagram(params: {
-  content: string
-  media?: any[]
-  accessToken: string
-  userId: string
-}) {
-  const { content, media, accessToken } = params
-
-  try {
-    // Instagram API posting logic would go here
-    // For now, return mock success response
-    
-    if (media && media.length > 0) {
-      // For media posts
-      return {
-        platformPostId: `ig_${Date.now()}`,
-        status: "published",
-        publishedAt: new Date().toISOString(),
-        url: `https://instagram.com/p/mock_post_id`,
-        type: "media_post"
+    return NextResponse.json({
+      success: true,
+      data: {
+        connected: instagramConnection.connected,
+        username: instagramConnection.username,
+        userId: instagramConnection.userId,
+        expiresAt: instagramConnection.expiresAt
       }
-    } else {
-      // For text-only posts (Instagram Stories or Reels with text overlay)
-      return {
-        platformPostId: `ig_story_${Date.now()}`,
-        status: "published",
-        publishedAt: new Date().toISOString(),
-        url: `https://instagram.com/stories/mock_user/mock_story_id`,
-        type: "story"
-      }
-    }
+    })
+
   } catch (error) {
-    throw new Error(`Instagram API error: ${error}`)
+    console.error("Instagram account fetch error:", error)
+    return NextResponse.json(
+      {
+        success: false,
+        error: "INSTAGRAM_API_ERROR",
+        message: "Failed to fetch Instagram account information"
+      },
+      { status: 500 }
+    )
   }
 }
