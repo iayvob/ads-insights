@@ -85,9 +85,18 @@ export async function POST(req: NextRequest) {
     console.error("Sign up error:", error)
 
     if (error.message.includes("already exists") || error.message.includes("already taken")) {
-      return addSecurityHeaders(createErrorResponse(error.message, 409))
+      const resource = error.message.includes("email") ? "email address" : "username";
+      return addSecurityHeaders(createErrorResponse(`This ${resource} is already registered. Please use a different one or sign in to your existing account.`, 409))
     }
 
-    return addSecurityHeaders(createErrorResponse("Failed to create user account", 500))
+    if (error.message.includes("validation")) {
+      return addSecurityHeaders(createErrorResponse("Please check your information and ensure all fields are filled correctly.", 422))
+    }
+
+    if (error.message.includes("rate limit")) {
+      return addSecurityHeaders(createErrorResponse("Too many signup attempts. Please wait a moment before trying again.", 429))
+    }
+
+    return addSecurityHeaders(createErrorResponse("We couldn't create your account at this time. Please try again later.", 500))
   }
 }

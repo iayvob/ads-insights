@@ -533,7 +533,6 @@ export default function Dashboard() {
                 <TabsContent value="twitter" className="space-y-6">
                   <TwitterInsights
                     data={displayData?.twitter || mockData?.twitter}
-                    canAccessAds={session?.user?.plan === "PREMIUM_MONTHLY" || session?.user?.plan === "PREMIUM_YEARLY"}
                     error={displayData?.errors?.twitter}
                   />
                   {/* Ads Analytics for Twitter if user has premium subscription */}

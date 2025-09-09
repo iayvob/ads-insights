@@ -13,6 +13,7 @@ import { Checkbox } from "../ui/checkbox";
 import EmailVerification from "./email-verification";
 import { PasswordStrength } from "./password-strength";
 import axios from "axios";
+import { toast } from "../ui/use-toast";
 
 export function SignUpForm() {
   const [step, setStep] = useState<"form" | "verification">("form");
@@ -100,16 +101,39 @@ export function SignUpForm() {
         });
 
         if (result.data.success) {
-          // Redirect immediately to subscription page for new users
-          router.push("/subscription");
+          toast({
+            title: "Account Created Successfully",
+            description: "Your account has been created. Redirecting to profile setup...",
+            variant: "default",
+          });
+          
+          // Redirect to profile connections tab after 2 seconds
+          setTimeout(() => {
+            window.location.href = "/profile?tab=connections";
+          }, 2000);
         } else {
           setError(result.data.error || "Failed to create account");
         }
       } else {
         setError(verifyResult.data.error || "Invalid verification code");
       }
-    } catch (error) {
-      setError(error instanceof Error ? error.message : "An unexpected error occurred");
+    } catch (error: any) {
+      if (axios.isAxiosError(error) && error.response) {
+        const statusCode = error.response.status;
+        const errorMessage = error.response.data?.error || "An error occurred";
+        
+        if (statusCode === 409) {
+          setError("This email or username is already taken. Please try a different one.");
+        } else if (statusCode === 422) {
+          setError("Please check your information and try again.");
+        } else if (statusCode === 429) {
+          setError("Too many signup attempts. Please try again later.");
+        } else {
+          setError(errorMessage);
+        }
+      } else {
+        setError(error?.message || "An unexpected error occurred while creating your account");
+      }
     } finally {
       setIsLoading(false);
     }

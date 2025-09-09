@@ -70,13 +70,21 @@ export async function POST(req: NextRequest) {
     console.error("Sign in error:", error)
 
     if (error.message.includes("Invalid email or password")) {
-      return addSecurityHeaders(createErrorResponse("Invalid email or password", 401))
+      return addSecurityHeaders(createErrorResponse("The email or password you entered is incorrect. Please try again.", 401))
     }
 
     if (error.message.includes("verify your email")) {
-      return addSecurityHeaders(createErrorResponse("Please verify your email before signing in", 403))
+      return addSecurityHeaders(createErrorResponse("Your email address has not been verified. Please check your inbox for a verification email.", 403))
+    }
+    
+    if (error.message.includes("account is locked")) {
+      return addSecurityHeaders(createErrorResponse("Your account has been temporarily locked due to multiple failed login attempts. Please try again later or reset your password.", 403))
     }
 
-    return addSecurityHeaders(createErrorResponse("Sign in failed", 500))
+    if (error.message.includes("rate limit")) {
+      return addSecurityHeaders(createErrorResponse("Too many sign-in attempts. Please wait a moment before trying again.", 429))
+    }
+
+    return addSecurityHeaders(createErrorResponse("We couldn't sign you in at this time. Please try again later.", 500))
   }
 }

@@ -44,21 +44,31 @@ export function SignInForm() {
           description: "You have successfully signed in.",
         });
 
-        // Redirect immediately based on user plan
-        if (plan === "FREEMIUM") {
-          router.push("/subscription");
-        } else if (plan === "PREMIUM_MONTHLY" || plan === "PREMIUM_YEARLY") {
-          router.push("/profile");
-        } else {
-          router.push("/dashboard");
-        }
+        // Redirect to profile connections tab after successful sign-in
+        setTimeout(() => {
+          window.location.href = "/profile?tab=connections";
+        }, 2000);
       } else {
         setError(result.data.error.message || "Failed to sign in");
       }
-    } catch (error) {
-      setError(
-        error instanceof Error ? error.message : "An unexpected error occurred"
-      );
+    } catch (error: any) {
+      if (axios.isAxiosError(error) && error.response) {
+        // Handle specific error cases with better messages
+        const statusCode = error.response.status;
+        const errorMessage = error.response.data?.error || "An error occurred";
+        
+        if (statusCode === 401) {
+          setError("Incorrect email or password. Please try again.");
+        } else if (statusCode === 403) {
+          setError("Please verify your email before signing in.");
+        } else if (statusCode === 429) {
+          setError("Too many sign-in attempts. Please try again later.");
+        } else {
+          setError(errorMessage);
+        }
+      } else {
+        setError(error?.message || "An unexpected error occurred while signing in");
+      }
     } finally {
       setIsLoading(false);
     }
