@@ -2,6 +2,26 @@ import { NextRequest, NextResponse } from "next/server"
 import { ServerSessionService } from "@/services/session-server"
 import { validatePremiumAccess } from "@/lib/subscription-access"
 import { MediaUploadResponse, PlatformConstraints } from "@/validations/posting-types"
+import { v2 as cloudinary } from 'cloudinary'
+import sharp from "sharp"
+import { createHash } from "crypto"
+import { writeFile } from "fs/promises"
+import { unlink } from "fs/promises"
+import { join } from "path"
+import { tmpdir } from "os"
+import { MediaFileUtils } from "@/utils/media-file-utils"
+import { ObjectId } from "mongodb"
+
+// Initialize Cloudinary
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME || "",
+  api_key: process.env.CLOUDINARY_API_KEY || "",
+  api_secret: process.env.CLOUDINARY_API_SECRET || "",
+  secure: true
+});
+
+const UPLOAD_PRESET = process.env.CLOUDINARY_UPLOAD_PRESET || "adinsights_media"
+const MAX_TEMP_FILE_SIZE = 50 * 1024 * 1024 // 50MB
 
 export async function POST(request: NextRequest) {
   try {
@@ -18,10 +38,10 @@ export async function POST(request: NextRequest) {
     const premiumAccess = await validatePremiumAccess(session.userId, "posting")
     if (!premiumAccess.hasAccess) {
       return NextResponse.json(
-        { 
-          success: false, 
+        {
+          success: false,
           error: "PREMIUM_REQUIRED",
-          message: "Premium subscription required for media uploads" 
+          message: "Premium subscription required for media uploads"
         },
         { status: 403 }
       )
@@ -55,7 +75,7 @@ export async function POST(request: NextRequest) {
 
     // Process uploads
     const uploadedFiles: MediaUploadResponse[] = []
-    
+
     for (const file of files) {
       try {
         const uploadResult = await processFileUpload(file, session.userId)
@@ -67,7 +87,7 @@ export async function POST(request: NextRequest) {
             success: false,
             error: "UPLOAD_FAILED",
             message: `Failed to upload file: ${file.name}`,
-            details: error
+            details: error instanceof Error ? error.message : String(error)
           },
           { status: 500 }
         )
@@ -83,10 +103,10 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error("Media upload API error:", error)
     return NextResponse.json(
-      { 
-        success: false, 
+      {
+        success: false,
         error: "INTERNAL_SERVER_ERROR",
-        message: "An unexpected error occurred during upload" 
+        message: "An unexpected error occurred during upload"
       },
       { status: 500 }
     )
@@ -113,9 +133,9 @@ export async function DELETE(request: NextRequest) {
       )
     }
 
-    // Delete media file
+    // Delete media file from storage and database
     const deleted = await deleteMediaFile(mediaId, session.userId)
-    
+
     if (!deleted) {
       return NextResponse.json(
         { success: false, error: "Media not found or access denied" },
@@ -131,10 +151,10 @@ export async function DELETE(request: NextRequest) {
   } catch (error) {
     console.error("Media delete API error:", error)
     return NextResponse.json(
-      { 
-        success: false, 
+      {
+        success: false,
         error: "INTERNAL_SERVER_ERROR",
-        message: "Failed to delete media file" 
+        message: "Failed to delete media file"
       },
       { status: 500 }
     )
@@ -144,11 +164,11 @@ export async function DELETE(request: NextRequest) {
 // Helper functions
 function validateMediaFiles(files: File[], platforms: string[]): any[] {
   const errors = []
-  
+
   // Get the most restrictive constraints across all platforms
   const allConstraints = platforms.map(p => PlatformConstraints[p as keyof typeof PlatformConstraints])
   const maxFiles = Math.min(...allConstraints.map(c => c.maxMedia))
-  
+
   if (files.length > maxFiles) {
     errors.push({
       error: "TOO_MANY_FILES",
@@ -161,13 +181,13 @@ function validateMediaFiles(files: File[], platforms: string[]): any[] {
     const fileErrors = validateSingleFile(file, platforms, i)
     errors.push(...fileErrors)
   }
-  
+
   return errors
 }
 
 function validateSingleFile(file: File, platforms: string[], index: number): any[] {
   const errors = []
-  
+
   // Basic file validation
   if (!file.type || !file.size) {
     errors.push({
@@ -182,7 +202,7 @@ function validateSingleFile(file: File, platforms: string[], index: number): any
   // Validate against each platform
   for (const platform of platforms) {
     const constraints = PlatformConstraints[platform as keyof typeof PlatformConstraints]
-    
+
     // Check file type
     if (!constraints.supportedMediaTypes.includes(file.type as any)) {
       errors.push({
@@ -193,11 +213,11 @@ function validateSingleFile(file: File, platforms: string[], index: number): any
         message: `File type ${file.type} not supported on ${platform}`
       })
     }
-    
+
     // Check file size
     const isVideo = file.type.startsWith("video/")
     const maxSize = isVideo ? constraints.maxVideoSize : constraints.maxImageSize
-    
+
     if (file.size > maxSize) {
       errors.push({
         index,
@@ -208,49 +228,231 @@ function validateSingleFile(file: File, platforms: string[], index: number): any
       })
     }
   }
-  
+
   return errors
 }
 
+/**
+ * Process and upload a file to Cloudinary and store metadata in database
+ */
 async function processFileUpload(file: File, userId: string): Promise<MediaUploadResponse> {
-  // In a real implementation, this would:
-  // 1. Generate unique filename
-  // 2. Upload to cloud storage (AWS S3, Cloudinary, etc.)
-  // 3. Generate thumbnails for images
-  // 4. Extract metadata (dimensions, duration)
-  // 5. Store file info in database
-  
-  // For now, return mock data
-  const fileId = `media_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+  // 1. Generate unique filename with user ID prefix for security
+  const fileHash = createHash('md5')
+    .update(`${file.name}-${Date.now()}-${Math.random()}`)
+    .digest('hex')
+    .slice(0, 10)
+
+  const uniqueFilename = `${userId}/${fileHash}-${Date.now()}`
   const isVideo = file.type.startsWith("video/")
-  
-  // Mock dimensions extraction
-  const dimensions = isVideo ? undefined : {
-    width: 1080,
-    height: 1080
-  }
-  
-  // Mock duration for videos
-  const duration = isVideo ? 30 : undefined
-  
-  return {
-    id: fileId,
-    url: `https://cdn.example.com/uploads/${userId}/${fileId}`,
-    filename: file.name,
-    type: isVideo ? "video" : "image",
-    size: file.size,
-    dimensions,
-    duration
+
+  // 2. Convert File to Buffer and save temporarily
+  const arrayBuffer = await file.arrayBuffer()
+  const buffer = Buffer.from(arrayBuffer)
+
+  // Save the file temporarily to disk (needed for Cloudinary upload)
+  const tempFilePath = join(tmpdir(), `upload-${fileHash}.tmp`)
+  await writeFile(tempFilePath, buffer)
+
+  try {
+    // 3. Extract metadata from file
+    let dimensions: { width: number; height: number } | undefined
+    let duration: number | undefined
+    let thumbnailUrl: string | undefined
+
+    if (!isVideo) {
+      // For images, use sharp to extract dimensions
+      try {
+        const metadata = await sharp(buffer).metadata()
+        if (metadata.width && metadata.height) {
+          dimensions = {
+            width: metadata.width,
+            height: metadata.height
+          }
+        }
+      } catch (error) {
+        console.error('Error processing image metadata:', error)
+      }
+    }
+
+    // 4. Upload to Cloudinary
+    const uploadOptions = {
+      folder: `adinsights/${userId}`,
+      public_id: fileHash,
+      resource_type: isVideo ? "video" : "image",
+      overwrite: true,
+      use_filename: false,
+    }
+
+    const uploadResult = await new Promise<any>((resolve, reject) => {
+      const uploadStream = cloudinary.uploader.upload_stream(
+        uploadOptions,
+        (error: any, result: any) => {
+          if (error) return reject(error)
+          return resolve(result)
+        }
+      )
+
+      // Use file stream to upload
+      const fs = require('fs')
+      const readStream = fs.createReadStream(tempFilePath)
+      readStream.pipe(uploadStream)
+    })
+
+    // 5. Clean up temp file
+    await unlink(tempFilePath)
+
+    // 6. Extract dimensions and metadata from Cloudinary response
+    if (uploadResult.width && uploadResult.height) {
+      dimensions = {
+        width: uploadResult.width,
+        height: uploadResult.height
+      }
+    }
+
+    if (isVideo && uploadResult.duration) {
+      duration = uploadResult.duration
+    }
+
+    // Generate thumbnail URL for images and videos
+    if (isVideo) {
+      thumbnailUrl = cloudinary.url(uploadResult.public_id, {
+        resource_type: 'video',
+        format: 'jpg',
+        secure: true,
+        transformation: [
+          { width: 300, height: 300, crop: 'fill' }
+        ]
+      })
+    } else {
+      thumbnailUrl = cloudinary.url(uploadResult.public_id, {
+        secure: true,
+        transformation: [
+          { width: 300, height: 300, crop: 'fill' }
+        ]
+      })
+    }
+
+    // 7. Store file info in the database using our utility
+    const mediaFile = await MediaFileUtils.create({
+      userId,
+      filename: file.name,
+      fileKey: uploadResult.public_id,
+      fileType: file.type,
+      fileSize: file.size,
+      url: uploadResult.secure_url,
+      isVideo,
+      width: dimensions?.width,
+      height: dimensions?.height,
+      duration,
+      thumbnailUrl,
+      resourceType: uploadResult.resource_type
+    })
+
+    // 8. Return media upload response
+    return {
+      id: mediaFile.id,
+      url: uploadResult.secure_url,
+      filename: file.name,
+      type: isVideo ? "video" : "image",
+      size: file.size,
+      dimensions,
+      duration
+    }
+  } catch (error) {
+    // Clean up temp file in case of error
+    try {
+      await unlink(tempFilePath)
+    } catch { }
+    throw error
   }
 }
 
+/**
+ * Delete a media file from Cloudinary and remove from database
+ */
 async function deleteMediaFile(mediaId: string, userId: string): Promise<boolean> {
-  // In a real implementation, this would:
-  // 1. Verify user owns the media file
-  // 2. Delete from cloud storage
-  // 3. Remove from database
-  // 4. Clean up any associated thumbnails
-  
-  // For now, return true to simulate successful deletion
-  return true
+  try {
+    // 1. Verify user owns the media file and get file info
+    const mediaFile = await MediaFileUtils.findById(mediaId)
+
+    if (!mediaFile || mediaFile.userId !== userId) {
+      return false // Not found or not authorized
+    }
+
+    // 2. Delete from Cloudinary
+    await cloudinary.uploader.destroy(
+      mediaFile.fileKey,
+      {
+        resource_type: (mediaFile.resourceType as 'image' | 'video' | 'raw') ||
+          (mediaFile.isVideo ? 'video' : 'image')
+      }
+    )
+
+    // 3. Remove from database using utility
+    await MediaFileUtils.deleteById(mediaId)
+
+    return true
+  } catch (error) {
+    console.error("Error deleting media file:", error)
+    return false
+  }
+}/**
+ * Get all media files for a user
+ */
+export async function GET(request: NextRequest) {
+  try {
+    const session = await ServerSessionService.getSession(request)
+    if (!session?.userId) {
+      return NextResponse.json(
+        { success: false, error: "Authentication required" },
+        { status: 401 }
+      )
+    }
+
+    // Get pagination parameters
+    const { searchParams } = new URL(request.url)
+    const limit = parseInt(searchParams.get("limit") || "20", 10)
+    const offset = parseInt(searchParams.get("offset") || "0", 10)
+
+    // Retrieve media files using our utility
+    const { files, total } = await MediaFileUtils.findByUserId(session.userId, {
+      limit,
+      skip: offset
+    });
+
+    // Format response
+    const formattedFiles: MediaUploadResponse[] = files.map(file => ({
+      id: file.id,
+      url: file.url,
+      filename: file.filename,
+      type: file.isVideo ? "video" : "image",
+      size: file.fileSize,
+      dimensions: file.width && file.height ? {
+        width: file.width,
+        height: file.height
+      } : undefined,
+      duration: file.duration || undefined
+    }));
+
+    return NextResponse.json({
+      success: true,
+      data: formattedFiles,
+      pagination: {
+        total,
+        limit,
+        offset
+      }
+    })
+
+  } catch (error) {
+    console.error("Media GET API error:", error)
+    return NextResponse.json(
+      {
+        success: false,
+        error: "INTERNAL_SERVER_ERROR",
+        message: "Failed to retrieve media files"
+      },
+      { status: 500 }
+    )
+  }
 }

@@ -28,13 +28,13 @@ export const SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
     stripePriceId: "", // No Stripe price for free plan
     features: [
       { name: "Post Analytics", included: true, description: "Track engagement and performance" },
-      { name: "Single Social Account", included: true, description: "Connect one social media platform" },
+      { name: "Twitter & Instagram", included: true, description: "Access to Twitter/X and Instagram analytics" },
       { name: "Basic Dashboard", included: true, description: "Essential metrics and insights" },
-      { name: "Ads Analytics", included: false },
+      { name: "Ads Analytics", included: false, description: "Premium only feature" },
       { name: "AI Insights", included: false },
       { name: "Post Scheduling", included: false },
       { name: "AI Hashtag Suggestions", included: false },
-      { name: "Multiple Accounts", included: false },
+      { name: "Additional Platforms", included: false, description: "Facebook, TikTok, Amazon" },
       { name: "Advanced Reports", included: false },
       { name: "Priority Support", included: false },
     ],

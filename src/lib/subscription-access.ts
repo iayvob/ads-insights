@@ -27,13 +27,13 @@ export function getPlatformAccess(plan: SubscriptionPlan): PlatformAccess {
   switch (plan) {
     case "FREEMIUM":
       return {
-        facebook: false, // Only one platform allowed in freemium - Instagram by default
-        instagram: true, // Default platform for freemium
-        twitter: false,
+        facebook: false, // Facebook not available in freemium
+        instagram: true, // Instagram available in freemium
+        twitter: true,   // Twitter/X available in freemium
         tiktok: false,
         amazon: false,
       };
-    
+
     case "PREMIUM_MONTHLY":
     case "PREMIUM_YEARLY":
       return {
@@ -43,7 +43,7 @@ export function getPlatformAccess(plan: SubscriptionPlan): PlatformAccess {
         tiktok: true,
         amazon: true,
       };
-    
+
     default:
       return {
         facebook: false,
@@ -70,9 +70,9 @@ export function getFeatureAccess(plan: SubscriptionPlan): FeatureAccess {
         exportData: false,
         apiAccess: false,
         prioritySupport: false,
-        multiplatformAccess: false, // Only one platform in freemium
+        multiplatformAccess: true, // Allow Instagram and Twitter in freemium
       };
-    
+
     case "PREMIUM_MONTHLY":
     case "PREMIUM_YEARLY":
       return {
@@ -86,7 +86,7 @@ export function getFeatureAccess(plan: SubscriptionPlan): FeatureAccess {
         prioritySupport: true,
         multiplatformAccess: true, // Multiple platforms in premium
       };
-    
+
     default:
       return {
         postAnalytics: true,
@@ -107,7 +107,7 @@ export function getFeatureAccess(plan: SubscriptionPlan): FeatureAccess {
  */
 export function isPlatformAccessible(platform: string, plan: SubscriptionPlan): boolean {
   const access = getPlatformAccess(plan);
-  
+
   switch (platform.toLowerCase()) {
     case "facebook":
       return access.facebook;
@@ -130,7 +130,7 @@ export function isPlatformAccessible(platform: string, plan: SubscriptionPlan): 
  */
 export function isFeatureAccessible(feature: string, plan: SubscriptionPlan): boolean {
   const access = getFeatureAccess(plan);
-  
+
   switch (feature.toLowerCase()) {
     case "post_analytics":
     case "postanalytics":
@@ -170,9 +170,8 @@ export function getRestrictionMessage(type: "platform" | "feature", name: string
   if (type === "platform") {
     switch (name.toLowerCase()) {
       case "facebook":
-      case "twitter":
       case "tiktok":
-        return `${name} is only available with Premium plans. Freemium users can access Instagram only. Upgrade to connect multiple platforms.`;
+        return `${name} is only available with Premium plans. Freemium users can access Twitter/X and Instagram only. Upgrade to connect additional platforms.`;
       case "amazon":
         return "Amazon analytics is only available with Premium plans. Upgrade to access Amazon insights.";
       default:
@@ -182,7 +181,7 @@ export function getRestrictionMessage(type: "platform" | "feature", name: string
     switch (name.toLowerCase()) {
       case "multiplatform_access":
       case "multiplatformaccess":
-        return "Multiple platform access is only available with Premium plans. Freemium users can connect one platform (Instagram).";
+        return "Additional platform access is only available with Premium plans. Freemium users can connect Twitter/X and Instagram only.";
       case "ads_analytics":
       case "adsanalytics":
         return "Ads analytics is only available with Premium plans. Upgrade to analyze your advertising performance.";
@@ -215,7 +214,7 @@ export function getRestrictionMessage(type: "platform" | "feature", name: string
 export function getMaxPlatformCount(plan: SubscriptionPlan): number {
   switch (plan) {
     case "FREEMIUM":
-      return 1; // Only one platform for freemium
+      return 2; // Two platforms for freemium: Twitter/X and Instagram
     case "PREMIUM_MONTHLY":
     case "PREMIUM_YEARLY":
       return 5; // All platforms for premium
@@ -233,10 +232,10 @@ export function canConnectPlatform(plan: SubscriptionPlan, currentConnectedCount
 }
 
 /**
- * Get default platform for freemium users
+ * Get default platforms for freemium users (now returns array of allowed platforms)
  */
-export function getDefaultFreemiumPlatform(): string {
-  return "instagram";
+export function getDefaultFreemiumPlatform(): string[] {
+  return ["instagram", "twitter"];
 }
 
 /**
@@ -245,13 +244,13 @@ export function getDefaultFreemiumPlatform(): string {
 export function getAvailablePlatforms(plan: SubscriptionPlan): string[] {
   const access = getPlatformAccess(plan);
   const platforms: string[] = [];
-  
+
   if (access.facebook) platforms.push("facebook");
   if (access.instagram) platforms.push("instagram");
   if (access.twitter) platforms.push("twitter");
   if (access.tiktok) platforms.push("tiktok");
   if (access.amazon) platforms.push("amazon");
-  
+
   return platforms;
 }
 
@@ -277,7 +276,7 @@ export function getAnalyticsTypeAccess(plan: SubscriptionPlan): {
   ads: boolean;
 } {
   const featureAccess = getFeatureAccess(plan);
-  
+
   return {
     posts: featureAccess.postAnalytics,
     ads: featureAccess.adsAnalytics,
@@ -296,34 +295,34 @@ export async function validatePremiumAccess(userId: string, feature: string): Pr
     // This would typically fetch the user's subscription from the database
     // For now, we'll mock it to return premium access
     // In a real implementation, you'd query the database for user subscription
-    
+
     // Mock user subscription - replace with actual database query
     const userSubscription = {
       plan: "PREMIUM_MONTHLY" as SubscriptionPlan,
       status: "ACTIVE"
     };
-    
+
     // Check if feature requires premium
     const featureRequiresPremium = ["posting", "ai_assistant", "unlimited_history", "export_data"].includes(feature);
-    
+
     if (!featureRequiresPremium) {
       return { hasAccess: true, plan: userSubscription.plan };
     }
-    
+
     // Check if user has premium plan
     const isPremium = userSubscription.plan === "PREMIUM_MONTHLY" || userSubscription.plan === "PREMIUM_YEARLY";
     const isActive = userSubscription.status === "ACTIVE";
-    
+
     if (isPremium && isActive) {
       return { hasAccess: true, plan: userSubscription.plan };
     }
-    
+
     return {
       hasAccess: false,
       plan: userSubscription.plan,
       message: "Premium subscription required for this feature"
     };
-    
+
   } catch (error) {
     console.error("Error validating premium access:", error);
     return {

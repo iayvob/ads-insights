@@ -75,6 +75,7 @@ model User {
   tokens                 token[]
   subscriptions          Subscription[]
   invoices               Invoice[]
+  mediaFiles             MediaFile[]
 
   // Time & Date
   lastLogin              DateTime?
@@ -167,4 +168,29 @@ model Invoice {
   hostedInvoiceUrl  String?
   invoicePdf        String?
   createdAt         DateTime              @default(now())
+}
+
+model MediaFile {
+  id                String                @id @default(auto()) @map("_id") @db.ObjectId
+  userId            String                @db.ObjectId
+  user              User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  filename          String
+  fileKey           String                // S3 object key
+  fileType          String                // MIME type
+  fileSize          Int                   // Size in bytes
+  url               String                // Signed URL
+  
+  isVideo           Boolean               @default(false)
+  width             Int?                  // Image/video width
+  height            Int?                  // Image/video height
+  duration          Int?                  // Video duration in seconds
+  thumbnailUrl      String?               // Thumbnail URL for images/videos
+  
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  
+  // Relation for posts (when implemented)
+  // posts             Post[]              @relation(fields: [postIds], references: [id])
+  // postIds           String[]            @db.ObjectId
 }

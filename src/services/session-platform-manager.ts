@@ -37,7 +37,7 @@ export interface SessionPlatformData {
  * Validate platform connection against subscription plan
  */
 export function validatePlatformConnection(
-  platform: string, 
+  platform: string,
   userPlan: SubscriptionPlan,
   currentConnections: string[]
 ): {
@@ -47,7 +47,7 @@ export function validatePlatformConnection(
 } {
   const platformAccess = getPlatformAccess(userPlan);
   const platformKey = platform.toLowerCase() as keyof typeof platformAccess;
-  
+
   // Check if platform is allowed for this plan
   if (!platformAccess[platformKey]) {
     return {
@@ -66,13 +66,13 @@ export function validatePlatformConnection(
     };
   }
 
-  // For freemium users, only allow the default platform
-  if (userPlan === 'FREEMIUM' && currentConnections.length === 0) {
-    const defaultPlatform = getDefaultFreemiumPlatform();
-    if (platform.toLowerCase() !== defaultPlatform) {
+  // For freemium users, only allow the default platforms
+  if (userPlan === 'FREEMIUM') {
+    const allowedFreemiumPlatforms = getDefaultFreemiumPlatform();
+    if (!allowedFreemiumPlatforms.includes(platform.toLowerCase())) {
       return {
         allowed: false,
-        reason: `Freemium users can only connect ${defaultPlatform}. Please upgrade for multiple platforms.`,
+        reason: `Freemium users can only connect Twitter/X and Instagram. Please upgrade for additional platforms.`,
         suggestedAction: 'upgrade_required'
       };
     }
@@ -121,7 +121,7 @@ export function filterAnalyticsData(
   userPlan: SubscriptionPlan
 ): any {
   const access = getPlatformAnalyticsAccess(platform, userPlan);
-  
+
   if (!access.posts && !access.ads) {
     return null;
   }
@@ -175,7 +175,7 @@ export function validatePostingAccess(
 } {
   // Only Instagram, Facebook, and Twitter are allowed for posting
   const allowedPostingPlatforms = ['instagram', 'facebook', 'twitter'];
-  
+
   if (!allowedPostingPlatforms.includes(platform.toLowerCase())) {
     return {
       allowed: false,

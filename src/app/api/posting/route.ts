@@ -57,6 +57,7 @@ export async function POST(request: NextRequest) {
 
     const { platforms, content, media, schedule, isDraft } = validationResult.data
 
+
     // Validate platform connections
     const connectedPlatforms = await validatePlatformConnections(session.userId, platforms)
     const missingConnections = platforms.filter(p => !connectedPlatforms.includes(p))
@@ -75,6 +76,7 @@ export async function POST(request: NextRequest) {
 
     // Validate content and media for each platform
     const validationErrors = validatePlatformContent(platforms, content, media || [])
+    console.log("Content validation errors:", validationErrors)
     if (validationErrors.length > 0) {
       return NextResponse.json(
         {

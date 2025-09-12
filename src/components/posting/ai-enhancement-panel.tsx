@@ -1,19 +1,25 @@
-"use client"
+'use client';
 
-import { useState } from "react"
-import { motion, AnimatePresence } from "framer-motion"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Switch } from "@/components/ui/switch"
-import { Label } from "@/components/ui/label"
-import { 
-  Sparkles, 
-  Wand2, 
-  Hash, 
+import { useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
+import {
+  Sparkles,
+  Wand2,
+  Hash,
   Lightbulb,
   RefreshCw,
   Copy,
@@ -22,25 +28,29 @@ import {
   Zap,
   Bot,
   ChevronDown,
-  ChevronUp
-} from "lucide-react"
-import { useAIEnhancement } from "@/hooks/use-ai-enhancement"
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
+  ChevronUp,
+} from 'lucide-react';
+import { useAIEnhancement } from '@/hooks/use-ai-enhancement';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
 
 interface AIEnhancementPanelProps {
-  content: string
-  onContentChange: (content: string) => void
-  selectedPlatforms: string[]
-  onHashtagsChange: (hashtags: string[]) => void
-  currentHashtags?: string[]
+  content: string;
+  onContentChange: (content: string) => void;
+  selectedPlatforms: string[];
+  onHashtagsChange: (hashtags: string[]) => void;
+  currentHashtags?: string[];
 }
 
-export function AIEnhancementPanel({ 
-  content, 
-  onContentChange, 
-  selectedPlatforms, 
+export function AIEnhancementPanel({
+  content,
+  onContentChange,
+  selectedPlatforms,
   onHashtagsChange,
-  currentHashtags = []
+  currentHashtags = [],
 }: AIEnhancementPanelProps) {
   const {
     isEnhancing,
@@ -49,60 +59,71 @@ export function AIEnhancementPanel({
     enhancePost,
     generateHashtags,
     generateContent,
-    lastEnhancement
-  } = useAIEnhancement()
+    lastEnhancement,
+  } = useAIEnhancement();
 
-  const [isOpen, setIsOpen] = useState(false)
-  const [contentPrompt, setContentPrompt] = useState("")
-  const [selectedTone, setSelectedTone] = useState("casual")
-  const [includeEmojis, setIncludeEmojis] = useState(true)
-  const [includeHashtags, setIncludeHashtags] = useState(true)
-  const [suggestedHashtags, setSuggestedHashtags] = useState<any[]>([])
+  const [isOpen, setIsOpen] = useState(false);
+  const [contentPrompt, setContentPrompt] = useState('');
+  const [selectedTone, setSelectedTone] = useState('casual');
+  const [includeEmojis, setIncludeEmojis] = useState(true);
+  const [includeHashtags, setIncludeHashtags] = useState(true);
+  const [suggestedHashtags, setSuggestedHashtags] = useState<any[]>([]);
 
   const handleEnhanceContent = async () => {
-    if (!content.trim()) return
+    if (!content.trim()) return;
 
     const result = await enhancePost(content, selectedPlatforms, {
       tone: selectedTone as any,
       includeEmojis,
       includeHashtags,
-      maxHashtags: 8
-    })
+      maxHashtags: 8,
+    });
 
     if (result) {
-      onContentChange(result.enhancedContent)
+      onContentChange(result.enhancedContent);
       if (result.suggestedHashtags.length > 0) {
-        setSuggestedHashtags(result.suggestedHashtags.map(tag => ({ hashtag: tag, trending: true })))
+        setSuggestedHashtags(
+          result.suggestedHashtags.map((tag) => ({
+            hashtag: tag,
+            trending: true,
+          }))
+        );
       }
     }
-  }
+  };
 
   const handleGenerateHashtags = async () => {
-    if (!content.trim()) return
+    if (!content.trim()) return;
 
-    const hashtags = await generateHashtags(content, selectedPlatforms)
-    setSuggestedHashtags(hashtags)
-  }
+    const hashtags = await generateHashtags(content, selectedPlatforms);
+    setSuggestedHashtags(hashtags);
+  };
 
   const handleGenerateContent = async () => {
-    if (!contentPrompt.trim()) return
+    if (!contentPrompt.trim()) return;
 
-    const generated = await generateContent(contentPrompt, selectedPlatforms, selectedTone)
+    const generated = await generateContent(
+      contentPrompt,
+      selectedPlatforms,
+      selectedTone
+    );
     if (generated) {
-      onContentChange(generated)
-      setContentPrompt("")
+      onContentChange(generated);
+      setContentPrompt('');
     }
-  }
+  };
 
   const handleAddHashtag = (hashtag: string) => {
-    const cleanHashtag = hashtag.startsWith('#') ? hashtag.slice(1) : hashtag
-    const newHashtags = [...currentHashtags, cleanHashtag].filter((tag, index, arr) => arr.indexOf(tag) === index)
-    onHashtagsChange(newHashtags)
-  }
+    const cleanHashtag = hashtag.startsWith('#') ? hashtag.slice(1) : hashtag;
+    const newHashtags = [...currentHashtags, cleanHashtag].filter(
+      (tag, index, arr) => arr.indexOf(tag) === index
+    );
+    onHashtagsChange(newHashtags);
+  };
 
   const handleCopyContent = () => {
-    navigator.clipboard.writeText(content)
-  }
+    navigator.clipboard.writeText(content);
+  };
 
   return (
     <Card className="shadow-lg border-0 bg-gradient-to-br from-purple-50 to-blue-50 backdrop-blur-sm">
@@ -117,12 +138,19 @@ export function AIEnhancementPanel({
                 <span className="bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent">
                   AI Enhancement Suite
                 </span>
-                <Badge variant="outline" className="bg-purple-100 text-purple-700 border-purple-300">
+                <Badge
+                  variant="outline"
+                  className="bg-purple-100 text-purple-700 border-purple-300"
+                >
                   <Bot className="h-3 w-3 mr-1" />
                   Premium
                 </Badge>
               </div>
-              {isOpen ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
+              {isOpen ? (
+                <ChevronUp className="h-5 w-5" />
+              ) : (
+                <ChevronDown className="h-5 w-5" />
+              )}
             </CardTitle>
           </CardHeader>
         </CollapsibleTrigger>
@@ -149,7 +177,11 @@ export function AIEnhancementPanel({
                 <div className="flex items-center gap-3">
                   <Button
                     onClick={handleGenerateContent}
-                    disabled={isGeneratingContent || !contentPrompt.trim()}
+                    disabled={
+                      isGeneratingContent ||
+                      !contentPrompt.trim() ||
+                      selectedPlatforms.length === 0
+                    }
                     className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"
                   >
                     {isGeneratingContent ? (
@@ -191,7 +223,7 @@ export function AIEnhancementPanel({
                 <Zap className="h-4 w-4 text-orange-600" />
                 <h4 className="font-medium">Enhance Existing Content</h4>
               </div>
-              
+
               <div className="grid grid-cols-2 gap-4">
                 <div className="flex items-center space-x-2">
                   <Switch
@@ -199,7 +231,9 @@ export function AIEnhancementPanel({
                     checked={includeEmojis}
                     onCheckedChange={setIncludeEmojis}
                   />
-                  <Label htmlFor="emojis" className="text-sm">Add Emojis</Label>
+                  <Label htmlFor="emojis" className="text-sm">
+                    Add Emojis
+                  </Label>
                 </div>
                 <div className="flex items-center space-x-2">
                   <Switch
@@ -207,14 +241,20 @@ export function AIEnhancementPanel({
                     checked={includeHashtags}
                     onCheckedChange={setIncludeHashtags}
                   />
-                  <Label htmlFor="hashtags" className="text-sm">Suggest Hashtags</Label>
+                  <Label htmlFor="hashtags" className="text-sm">
+                    Suggest Hashtags
+                  </Label>
                 </div>
               </div>
 
               <div className="flex items-center gap-3">
                 <Button
                   onClick={handleEnhanceContent}
-                  disabled={isEnhancing || !content.trim()}
+                  disabled={
+                    isEnhancing ||
+                    !content.trim() ||
+                    selectedPlatforms.length === 0
+                  }
                   variant="outline"
                   className="border-purple-300 text-purple-700 hover:bg-purple-50"
                 >
@@ -230,7 +270,7 @@ export function AIEnhancementPanel({
                     </>
                   )}
                 </Button>
-                
+
                 <Button
                   onClick={handleCopyContent}
                   disabled={!content.trim()}
@@ -258,7 +298,11 @@ export function AIEnhancementPanel({
                 </div>
                 <Button
                   onClick={handleGenerateHashtags}
-                  disabled={isGeneratingHashtags || !content.trim()}
+                  disabled={
+                    isGeneratingHashtags ||
+                    !content.trim() ||
+                    selectedPlatforms.length === 0
+                  }
                   size="sm"
                   variant="outline"
                   className="border-blue-300 text-blue-700 hover:bg-blue-50"
@@ -282,7 +326,7 @@ export function AIEnhancementPanel({
                 {suggestedHashtags.length > 0 && (
                   <motion.div
                     initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: "auto" }}
+                    animate={{ opacity: 1, height: 'auto' }}
                     exit={{ opacity: 0, height: 0 }}
                     className="grid grid-cols-2 gap-2"
                   >
@@ -303,8 +347,11 @@ export function AIEnhancementPanel({
                             <span className="text-sm font-mono text-blue-600">
                               {typeof item === 'string' ? item : item.hashtag}
                             </span>
-                            {(typeof item === 'object' && item.trending) && (
-                              <Badge variant="secondary" className="ml-2 text-xs bg-red-100 text-red-700">
+                            {typeof item === 'object' && item.trending && (
+                              <Badge
+                                variant="secondary"
+                                className="ml-2 text-xs bg-red-100 text-red-700"
+                              >
                                 <TrendingUp className="h-2 w-2 mr-1" />
                                 Hot
                               </Badge>
@@ -329,7 +376,9 @@ export function AIEnhancementPanel({
                 >
                   <div className="flex items-center gap-2">
                     <ThumbsUp className="h-4 w-4 text-green-600" />
-                    <h4 className="font-medium text-green-800">Enhancement Applied</h4>
+                    <h4 className="font-medium text-green-800">
+                      Enhancement Applied
+                    </h4>
                   </div>
                   <div className="grid grid-cols-2 gap-3 text-sm">
                     {lastEnhancement.improvements.addedEmojis && (
@@ -343,7 +392,10 @@ export function AIEnhancementPanel({
                       </Badge>
                     )}
                     {lastEnhancement.improvements.toneAdjustment && (
-                      <Badge variant="outline" className="justify-start col-span-2">
+                      <Badge
+                        variant="outline"
+                        className="justify-start col-span-2"
+                      >
                         🎯 {lastEnhancement.improvements.toneAdjustment}
                       </Badge>
                     )}
@@ -355,5 +407,5 @@ export function AIEnhancementPanel({
         </CollapsibleContent>
       </Collapsible>
     </Card>
-  )
+  );
 }

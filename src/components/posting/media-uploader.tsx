@@ -1,148 +1,176 @@
-"use client"
+'use client';
 
-import { useCallback, useState } from "react"
-import { motion, AnimatePresence } from "framer-motion"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Progress } from "@/components/ui/progress"
-import { Badge } from "@/components/ui/badge"
-import { 
-  Upload, 
-  Image, 
-  Video, 
-  File, 
-  X, 
+import { useCallback, useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Progress } from '@/components/ui/progress';
+import { Badge } from '@/components/ui/badge';
+import {
+  Upload,
+  Image,
+  Video,
+  File,
+  X,
   Eye,
   Download,
   RotateCcw,
   Crop,
-  Sparkles
-} from "lucide-react"
+  Sparkles,
+} from 'lucide-react';
 
 interface MediaFile {
-  file: File
-  preview: string
-  type: 'image' | 'video' | 'other'
-  id: string
+  file: File;
+  preview: string;
+  type: 'image' | 'video' | 'other';
+  id: string;
 }
 
 interface MediaUploaderProps {
-  files: File[]
-  onFilesChange: (files: File[]) => void
-  maxFiles?: number
-  maxSize?: number // in MB
-  acceptedTypes?: string[]
+  files: File[];
+  onFilesChange: (files: File[]) => void;
+  maxFiles?: number;
+  maxSize?: number; // in MB
+  acceptedTypes?: string[];
 }
 
-export function MediaUploader({ 
-  files, 
-  onFilesChange, 
+export function MediaUploader({
+  files,
+  onFilesChange,
   maxFiles = 10,
   maxSize = 50,
-  acceptedTypes = ['image/*', 'video/*']
+  acceptedTypes = ['image/*', 'video/*'],
 }: MediaUploaderProps) {
-  const [mediaFiles, setMediaFiles] = useState<MediaFile[]>([])
-  const [isDragOver, setIsDragOver] = useState(false)
-  const [uploadProgress, setUploadProgress] = useState<number>(0)
-  const [isUploading, setIsUploading] = useState(false)
+  const [mediaFiles, setMediaFiles] = useState<MediaFile[]>([]);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number>(0);
+  const [isUploading, setIsUploading] = useState(false);
 
   const createMediaFile = (file: File): MediaFile => {
-    const preview = URL.createObjectURL(file)
-    const type = file.type.startsWith('image/') ? 'image' : 
-                 file.type.startsWith('video/') ? 'video' : 'other'
-    
+    const preview = URL.createObjectURL(file);
+    const type = file.type.startsWith('image/')
+      ? 'image'
+      : file.type.startsWith('video/')
+        ? 'video'
+        : 'other';
+
     return {
       file,
       preview,
       type,
-      id: Math.random().toString(36).substr(2, 9)
-    }
-  }
+      id: Math.random().toString(36).substr(2, 9),
+    };
+  };
 
-  const handleFileSelect = useCallback((selectedFiles: FileList | null) => {
-    if (!selectedFiles) return
+  const handleFileSelect = useCallback(
+    (selectedFiles: FileList | null) => {
+      if (!selectedFiles) return;
 
-    const newFiles = Array.from(selectedFiles)
-    const totalFiles = files.length + newFiles.length
+      const newFiles = Array.from(selectedFiles);
+      const totalFiles = files.length + newFiles.length;
 
-    if (totalFiles > maxFiles) {
-      alert(`Maximum ${maxFiles} files allowed`)
-      return
-    }
+      if (totalFiles > maxFiles) {
+        alert(`Maximum ${maxFiles} files allowed`);
+        return;
+      }
 
-    // Validate file sizes
-    const oversizedFiles = newFiles.filter(file => file.size > maxSize * 1024 * 1024)
-    if (oversizedFiles.length > 0) {
-      alert(`Files must be smaller than ${maxSize}MB`)
-      return
-    }
+      // Validate file sizes
+      const oversizedFiles = newFiles.filter(
+        (file) => file.size > maxSize * 1024 * 1024
+      );
+      if (oversizedFiles.length > 0) {
+        alert(`Files must be smaller than ${maxSize}MB`);
+        return;
+      }
 
-    // Simulate upload progress
-    setIsUploading(true)
-    setUploadProgress(0)
-    
-    const progressInterval = setInterval(() => {
-      setUploadProgress(prev => {
-        if (prev >= 100) {
-          clearInterval(progressInterval)
-          setIsUploading(false)
-          
-          // Add to media files
-          const newMediaFiles = newFiles.map(createMediaFile)
-          setMediaFiles(prev => [...prev, ...newMediaFiles])
-          onFilesChange([...files, ...newFiles])
-          
-          return 100
-        }
-        return prev + 10
-      })
-    }, 100)
+      // Validate file types
+      const invalidFiles = newFiles.filter(
+        (file) =>
+          !acceptedTypes.some((type) => {
+            if (type.endsWith('*')) {
+              return file.type.startsWith(type.replace('*', ''));
+            }
+            return file.type === type;
+          })
+      );
 
-  }, [files, maxFiles, maxSize, onFilesChange])
+      if (invalidFiles.length > 0) {
+        alert(
+          `Invalid file type. Please upload only ${acceptedTypes.join(', ')}`
+        );
+        return;
+      }
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    setIsDragOver(false)
-    handleFileSelect(e.dataTransfer.files)
-  }, [handleFileSelect])
+      // Simulate upload progress
+      setIsUploading(true);
+      setUploadProgress(0);
+
+      const progressInterval = setInterval(() => {
+        setUploadProgress((prev) => {
+          if (prev >= 100) {
+            clearInterval(progressInterval);
+            setIsUploading(false);
+
+            // Add to media files
+            const newMediaFiles = newFiles.map(createMediaFile);
+            setMediaFiles((prev) => [...prev, ...newMediaFiles]);
+            onFilesChange([...files, ...newFiles]);
+
+            return 100;
+          }
+          return prev + 10;
+        });
+      }, 100);
+    },
+    [files, maxFiles, maxSize, onFilesChange]
+  );
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      setIsDragOver(false);
+      handleFileSelect(e.dataTransfer.files);
+    },
+    [handleFileSelect]
+  );
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    setIsDragOver(true)
-  }, [])
+    e.preventDefault();
+    setIsDragOver(true);
+  }, []);
 
   const handleDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    setIsDragOver(false)
-  }, [])
+    e.preventDefault();
+    setIsDragOver(false);
+  }, []);
 
   const removeFile = (fileId: string) => {
-    const mediaFile = mediaFiles.find(mf => mf.id === fileId)
+    const mediaFile = mediaFiles.find((mf) => mf.id === fileId);
     if (mediaFile) {
-      URL.revokeObjectURL(mediaFile.preview)
-      setMediaFiles(prev => prev.filter(mf => mf.id !== fileId))
-      onFilesChange(files.filter(f => f !== mediaFile.file))
+      URL.revokeObjectURL(mediaFile.preview);
+      setMediaFiles((prev) => prev.filter((mf) => mf.id !== fileId));
+      onFilesChange(files.filter((f) => f !== mediaFile.file));
     }
-  }
+  };
 
   const getFileIcon = (type: MediaFile['type']) => {
     switch (type) {
       case 'image':
-        return <Image className="h-4 w-4" />
+        return <Image className="h-4 w-4" />;
       case 'video':
-        return <Video className="h-4 w-4" />
+        return <Video className="h-4 w-4" />;
       default:
-        return <File className="h-4 w-4" />
+        return <File className="h-4 w-4" />;
     }
-  }
+  };
 
   const formatFileSize = (bytes: number) => {
-    if (bytes === 0) return '0 Bytes'
-    const k = 1024
-    const sizes = ['Bytes', 'KB', 'MB', 'GB']
-    const i = Math.floor(Math.log(bytes) / Math.log(k))
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
-  }
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
 
   return (
     <Card className="shadow-lg border-0 bg-white/80 backdrop-blur-sm">
@@ -168,9 +196,10 @@ export function MediaUploader({
           onDragLeave={handleDragLeave}
           className={`
             relative border-2 border-dashed rounded-lg p-8 text-center transition-all duration-200
-            ${isDragOver 
-              ? 'border-blue-400 bg-blue-50' 
-              : 'border-gray-300 hover:border-gray-400 hover:bg-gray-50'
+            ${
+              isDragOver
+                ? 'border-blue-400 bg-blue-50'
+                : 'border-gray-300 hover:border-gray-400 hover:bg-gray-50'
             }
             ${mediaFiles.length >= maxFiles ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}
           `}
@@ -185,7 +214,7 @@ export function MediaUploader({
             aria-label="Upload media files"
             title="Upload media files"
           />
-          
+
           <motion.div
             animate={isDragOver ? { scale: 1.05 } : { scale: 1 }}
             className="space-y-3"
@@ -244,7 +273,7 @@ export function MediaUploader({
                 <Eye className="h-4 w-4" />
                 Media Preview
               </h4>
-              
+
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {mediaFiles.map((mediaFile, index) => (
                   <motion.div
@@ -336,14 +365,16 @@ export function MediaUploader({
         {mediaFiles.length > 0 && (
           <div className="text-xs text-gray-500 bg-gray-50 p-3 rounded-lg">
             <div className="flex items-center justify-between">
-              <span>{mediaFiles.length} of {maxFiles} files uploaded</span>
+              <span>
+                {mediaFiles.length} of {maxFiles} files uploaded
+              </span>
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => {
-                  mediaFiles.forEach(mf => URL.revokeObjectURL(mf.preview))
-                  setMediaFiles([])
-                  onFilesChange([])
+                  mediaFiles.forEach((mf) => URL.revokeObjectURL(mf.preview));
+                  setMediaFiles([]);
+                  onFilesChange([]);
                 }}
                 className="h-6 px-2 text-xs text-red-600 hover:text-red-700"
               >
@@ -354,5 +385,5 @@ export function MediaUploader({
         )}
       </CardContent>
     </Card>
-  )
+  );
 }

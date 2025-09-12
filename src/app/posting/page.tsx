@@ -1,42 +1,42 @@
-"use client"
+'use client';
 
-import { useState, useEffect } from "react"
-import { motion } from "framer-motion"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Textarea } from "@/components/ui/textarea"
-import { Input } from "@/components/ui/input"
-import { Badge } from "@/components/ui/badge"
-import { Switch } from "@/components/ui/switch"
-import { 
-  Image, 
-  Video, 
-  Calendar, 
-  Clock, 
-  Send, 
-  Plus, 
-  X, 
+import { useState, useEffect } from 'react';
+import { motion } from 'framer-motion';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
+import {
+  Image,
+  Video,
+  Calendar,
+  Clock,
+  Send,
+  Plus,
+  X,
   Sparkles,
   Zap,
   Target,
   TrendingUp,
   AlertCircle,
-  CheckCircle
-} from "lucide-react"
-import { PlatformSelector } from "@/components/posting/platform-selector"
-import { MediaUploader } from "@/components/posting/media-uploader"
-import { PostScheduler } from "@/components/posting/post-scheduler"
-import { PostPreview } from "@/components/posting/post-preview"
-import { PremiumGate } from "@/components/posting/premium-gate"
-import { AIEnhancementPanel } from "@/components/posting/ai-enhancement-panel"
-import { usePosting } from "@/hooks/use-posting"
-import { SocialPlatform } from "@/validations/posting-types"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import { useSession } from "@/hooks/session-context"
-import { SubscriptionPlan } from "@prisma/client"
+  CheckCircle,
+} from 'lucide-react';
+import { PlatformSelector } from '@/components/posting/platform-selector';
+import { MediaUploader } from '@/components/posting/media-uploader';
+import { PostScheduler } from '@/components/posting/post-scheduler';
+import { PostPreview } from '@/components/posting/post-preview';
+import { PremiumGate } from '@/components/posting/premium-gate';
+import { AIEnhancementPanel } from '@/components/posting/ai-enhancement-panel';
+import { usePosting } from '@/hooks/use-posting';
+import { SocialPlatform } from '@/validations/posting-types';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { useSession } from '@/hooks/session-context';
+import { SubscriptionPlan } from '@prisma/client';
 
 export default function PostingPage() {
-  const { data: session, isLoading } = useSession()
+  const { data: session, isLoading } = useSession();
   const {
     isLoading: isPosting,
     isUploading,
@@ -47,104 +47,125 @@ export default function PostingPage() {
     loadConnectedPlatforms,
     validateContent,
     extractHashtags,
-    extractMentions
-  } = usePosting()
+    extractMentions,
+  } = usePosting();
 
-  const [postContent, setPostContent] = useState("")
-  const [selectedPlatforms, setSelectedPlatforms] = useState<SocialPlatform[]>([])
-  const [mediaFiles, setMediaFiles] = useState<File[]>([])
-  const [isScheduled, setIsScheduled] = useState(false)
-  const [scheduledDate, setScheduledDate] = useState<Date | null>(null)
-  const [hashtags, setHashtags] = useState<string[]>([])
-  const [currentHashtag, setCurrentHashtag] = useState("")
-  const [validationErrors, setValidationErrors] = useState<string[]>([])
+  const [postContent, setPostContent] = useState('');
+  const [selectedPlatforms, setSelectedPlatforms] = useState<SocialPlatform[]>(
+    []
+  );
+  const [mediaFiles, setMediaFiles] = useState<File[]>([]);
+  const [isScheduled, setIsScheduled] = useState(false);
+  const [scheduledDate, setScheduledDate] = useState<Date | null>(null);
+  const [hashtags, setHashtags] = useState<string[]>([]);
+  const [currentHashtag, setCurrentHashtag] = useState('');
+  const [validationErrors, setValidationErrors] = useState<string[]>([]);
 
   // Check if user has premium access
-  const isPremium = session?.user?.plan === SubscriptionPlan.PREMIUM_MONTHLY || session?.user?.plan === SubscriptionPlan.PREMIUM_YEARLY
+  const isPremium =
+    session?.user?.plan === SubscriptionPlan.PREMIUM_MONTHLY ||
+    session?.user?.plan === SubscriptionPlan.PREMIUM_YEARLY;
 
   // Load connected platforms on mount
   useEffect(() => {
-    loadConnectedPlatforms()
-  }, [loadConnectedPlatforms])
+    loadConnectedPlatforms();
+  }, [loadConnectedPlatforms]);
 
   // Auto-extract hashtags from content
   useEffect(() => {
-    const extractedHashtags = extractHashtags(postContent)
+    const extractedHashtags = extractHashtags(postContent);
     if (extractedHashtags.length > 0) {
-      setHashtags(prev => {
-        const combined = [...new Set([...prev, ...extractedHashtags])]
-        return combined
-      })
+      setHashtags((prev) => {
+        const combined = [...new Set([...prev, ...extractedHashtags])];
+        return combined;
+      });
     }
-  }, [postContent, extractHashtags])
+  }, [postContent, extractHashtags]);
 
   // Validate content in real-time
   useEffect(() => {
     if (postContent && selectedPlatforms.length > 0) {
-      const validation = validateContent(postContent, selectedPlatforms)
-      setValidationErrors(validation.errors)
+      const validation = validateContent(postContent, selectedPlatforms);
+      setValidationErrors(validation.errors);
+
+      // Add Instagram validation for media requirement
+      if (
+        selectedPlatforms.includes('instagram') &&
+        uploadedMedia.length === 0
+      ) {
+        setValidationErrors((prev) => [
+          ...prev,
+          'Instagram requires at least one media file (image/video)',
+        ]);
+      }
     } else {
-      setValidationErrors([])
+      setValidationErrors([]);
     }
-  }, [postContent, selectedPlatforms, validateContent])
+  }, [postContent, selectedPlatforms, validateContent, uploadedMedia.length]);
 
   const handleAddHashtag = () => {
     if (currentHashtag.trim() && !hashtags.includes(currentHashtag.trim())) {
-      setHashtags([...hashtags, currentHashtag.trim()])
-      setCurrentHashtag("")
+      setHashtags([...hashtags, currentHashtag.trim()]);
+      setCurrentHashtag('');
     }
-  }
+  };
 
   const handleRemoveHashtag = (tag: string) => {
-    setHashtags(hashtags.filter(h => h !== tag))
-  }
+    setHashtags(hashtags.filter((h) => h !== tag));
+  };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault()
-      handleAddHashtag()
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      handleAddHashtag();
     }
-  }
+  };
 
   const handleMediaUpload = async (files: File[]) => {
     if (selectedPlatforms.length === 0) {
-      alert("Please select platforms first")
-      return
+      alert('Please select platforms first');
+      return;
     }
 
     try {
-      await uploadMedia(files, selectedPlatforms)
-      setMediaFiles(prev => [...prev, ...files])
+      await uploadMedia(files, selectedPlatforms);
+      setMediaFiles((prev) => [...prev, ...files]);
     } catch (error) {
-      console.error("Media upload failed:", error)
+      console.error('Media upload failed:', error);
     }
-  }
+  };
 
   const handleRemoveMedia = async (mediaId: string) => {
     try {
-      await removeMedia(mediaId)
+      await removeMedia(mediaId);
       // Update local files list by removing the file
       // In a real implementation, you'd match by ID
-      setMediaFiles([])
+      setMediaFiles([]);
     } catch (error) {
-      console.error("Media removal failed:", error)
+      console.error('Media removal failed:', error);
     }
-  }
+  };
 
   const handlePublish = async (isDraft = false) => {
     if (!postContent.trim() && uploadedMedia.length === 0) {
-      alert("Please add content or media to your post")
-      return
+      alert('Please add content or media to your post');
+      return;
     }
 
     if (selectedPlatforms.length === 0) {
-      alert("Please select at least one platform")
-      return
+      alert('Please select at least one platform');
+      return;
+    }
+
+    // Ensure Instagram posts have media
+    if (selectedPlatforms.includes('instagram') && uploadedMedia.length === 0) {
+      alert('Instagram posts require at least one media file');
+      return;
     }
 
     if (validationErrors.length > 0) {
-      alert("Please fix validation errors before publishing")
-      return
+      alert('Please fix validation errors before publishing');
+      return;
     }
 
     try {
@@ -155,39 +176,41 @@ export default function PostingPage() {
           hashtags,
           mentions: extractMentions(postContent),
         },
-        media: uploadedMedia.map(m => ({
+        media: uploadedMedia.map((m) => ({
           type: m.type,
           size: 0, // This would be set from the actual file
-          mimeType: m.type === "image" ? "image/jpeg" : "video/mp4",
+          mimeType: m.type === 'image' ? 'image/jpeg' : 'video/mp4',
           filename: m.filename,
           dimensions: m.dimensions,
-          duration: m.duration
+          duration: m.duration,
         })),
-        schedule: isScheduled && scheduledDate ? {
-          scheduledAt: scheduledDate,
-          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
-        } : undefined,
-        isDraft
-      }
+        schedule:
+          isScheduled && scheduledDate
+            ? {
+                scheduledAt: scheduledDate,
+                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+              }
+            : undefined,
+        isDraft,
+      };
 
-      await createPost(postData)
-      
+      await createPost(postData);
+
       // Reset form on success
-      setPostContent("")
-      setSelectedPlatforms([])
-      setMediaFiles([])
-      setHashtags([])
-      setIsScheduled(false)
-      setScheduledDate(null)
-      
+      setPostContent('');
+      setSelectedPlatforms([]);
+      setMediaFiles([]);
+      setHashtags([]);
+      setIsScheduled(false);
+      setScheduledDate(null);
     } catch (error) {
-      console.error("Publishing failed:", error)
+      console.error('Publishing failed:', error);
     }
-  }
+  };
 
   // Show premium gate for non-premium users
   if (!isPremium && !isLoading) {
-    return <PremiumGate />
+    return <PremiumGate />;
   }
 
   return (
@@ -206,9 +229,13 @@ export default function PostingPage() {
             </h1>
           </div>
           <p className="text-gray-600 text-lg">
-            Create and schedule engaging content across all your social platforms
+            Create and schedule engaging content across all your social
+            platforms
           </p>
-          <Badge variant="outline" className="mt-2 bg-gradient-to-r from-purple-100 to-blue-100 border-purple-300">
+          <Badge
+            variant="outline"
+            className="mt-2 bg-gradient-to-r from-purple-100 to-blue-100 border-purple-300"
+          >
             <Zap className="h-3 w-3 mr-1" />
             Premium Feature
           </Badge>
@@ -237,7 +264,7 @@ export default function PostingPage() {
                     onChange={(e) => setPostContent(e.target.value)}
                     className="min-h-[120px] resize-none border-gray-200 focus:border-purple-400 focus:ring-purple-400"
                   />
-                  
+
                   {/* Validation Errors */}
                   {validationErrors.length > 0 && (
                     <Alert variant="destructive">
@@ -251,19 +278,23 @@ export default function PostingPage() {
                       </AlertDescription>
                     </Alert>
                   )}
-                  
+
                   {/* Character Count & Platform Validation */}
                   <div className="flex items-center justify-between text-sm">
                     <div className="flex items-center gap-4">
-                      <span className={`${postContent.length > 2200 ? 'text-red-500' : 'text-gray-500'}`}>
+                      <span
+                        className={`${postContent.length > 2200 ? 'text-red-500' : 'text-gray-500'}`}
+                      >
                         {postContent.length}/2200 characters
                       </span>
-                      {selectedPlatforms.length > 0 && validationErrors.length === 0 && postContent.length > 0 && (
-                        <div className="flex items-center gap-1 text-green-600">
-                          <CheckCircle className="h-4 w-4" />
-                          <span>Valid for selected platforms</span>
-                        </div>
-                      )}
+                      {selectedPlatforms.length > 0 &&
+                        validationErrors.length === 0 &&
+                        postContent.length > 0 && (
+                          <div className="flex items-center gap-1 text-green-600">
+                            <CheckCircle className="h-4 w-4" />
+                            <span>Valid for selected platforms</span>
+                          </div>
+                        )}
                     </div>
                     <div className="flex items-center gap-2">
                       {isUploading && (
@@ -291,7 +322,7 @@ export default function PostingPage() {
                 maxFiles={selectedPlatforms.includes('twitter') ? 4 : 10}
                 maxSize={50}
               />
-              
+
               {/* Display uploaded media */}
               {uploadedMedia.length > 0 && (
                 <Card className="mt-4 bg-green-50 border-green-200">
@@ -306,7 +337,7 @@ export default function PostingPage() {
                       {uploadedMedia.map((media) => (
                         <div key={media.id} className="relative group">
                           <img
-                            src={media.url || "/placeholder.jpg"}
+                            src={media.url || '/placeholder.jpg'}
                             alt={media.filename}
                             className="w-full h-20 object-cover rounded-lg"
                           />
@@ -348,7 +379,7 @@ export default function PostingPage() {
                       onKeyPress={handleKeyPress}
                       className="flex-1"
                     />
-                    <Button 
+                    <Button
                       onClick={handleAddHashtag}
                       size="sm"
                       className="bg-green-600 hover:bg-green-700"
@@ -356,7 +387,7 @@ export default function PostingPage() {
                       <Plus className="h-4 w-4" />
                     </Button>
                   </div>
-                  
+
                   {hashtags.length > 0 && (
                     <div className="flex flex-wrap gap-2">
                       {hashtags.map((tag, index) => (
@@ -431,7 +462,7 @@ export default function PostingPage() {
                       onCheckedChange={setIsScheduled}
                     />
                   </div>
-                  
+
                   {isScheduled && (
                     <PostScheduler
                       selectedDate={scheduledDate}
@@ -468,10 +499,12 @@ export default function PostingPage() {
                 size="lg"
                 className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white shadow-lg"
                 disabled={
-                  (!postContent.trim() && uploadedMedia.length === 0) || 
-                  selectedPlatforms.length === 0 || 
+                  (!postContent.trim() && uploadedMedia.length === 0) ||
+                  selectedPlatforms.length === 0 ||
                   isPosting ||
-                  validationErrors.length > 0
+                  validationErrors.length > 0 ||
+                  (selectedPlatforms.includes('instagram') &&
+                    uploadedMedia.length === 0)
                 }
                 onClick={() => handlePublish(false)}
               >
@@ -483,17 +516,17 @@ export default function PostingPage() {
                 ) : (
                   <>
                     <Send className="h-5 w-5 mr-2" />
-                    {isScheduled ? "Schedule Post" : "Publish Now"}
+                    {isScheduled ? 'Schedule Post' : 'Publish Now'}
                   </>
                 )}
               </Button>
-              
+
               <Button
                 variant="outline"
                 size="lg"
                 className="w-full border-gray-300 hover:bg-gray-50"
                 disabled={
-                  (!postContent.trim() && uploadedMedia.length === 0) || 
+                  (!postContent.trim() && uploadedMedia.length === 0) ||
                   isPosting
                 }
                 onClick={() => handlePublish(true)}
@@ -505,5 +538,5 @@ export default function PostingPage() {
         </div>
       </div>
     </div>
-  )
+  );
 }
