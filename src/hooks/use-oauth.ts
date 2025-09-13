@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, useEffect, useCallback } from 'react';
-import { SubscriptionPlan } from '@prisma/client';
 import { useSession } from './session-context';
 import { logger } from '@/config/logger';
+
+// Define subscription plan type used in this component
+type SubscriptionPlan = 'FREEMIUM' | 'PREMIUM_MONTHLY' | 'PREMIUM_YEARLY';
 
 export interface ConnectedPlatform {
   platform: string;
@@ -107,12 +109,13 @@ export function useOAuth(): UseOAuthReturn {
       }
 
       const data = await response.json();
-      
+
       // Redirect to OAuth provider
       if (data.data.authUrl) {
         // Store platform info in sessionStorage for post-auth handling
         sessionStorage.setItem('oauth_platform', platform);
-        window.location.href = data.data.authUrl;
+        // Open auth URL in a new tab
+        window.open(data.data.authUrl, '_blank', 'noopener,noreferrer');
       } else {
         throw new Error('No authorization URL received');
       }
@@ -176,9 +179,9 @@ export function useOAuth(): UseOAuthReturn {
 
     // Check connection limits for freemium users
     if (status.userPlan === 'FREEMIUM' && status.connectedCount >= status.limits.freemiumMaxConnections) {
-      return { 
-        canConnect: false, 
-        reason: 'Freemium plan allows only one platform connection. Upgrade to Premium for multi-platform connectivity.' 
+      return {
+        canConnect: false,
+        reason: 'Freemium plan allows only one platform connection. Upgrade to Premium for multi-platform connectivity.'
       };
     }
 
@@ -211,11 +214,11 @@ export function useOAuth(): UseOAuthReturn {
       if (code && state && platform) {
         // OAuth flow completed successfully, refresh status
         sessionStorage.removeItem('oauth_platform');
-        
+
         // Clear URL parameters
         const newUrl = window.location.pathname;
         window.history.replaceState({}, document.title, newUrl);
-        
+
         // Refresh status to reflect new connection
         setTimeout(() => {
           fetchStatus();
@@ -224,7 +227,7 @@ export function useOAuth(): UseOAuthReturn {
         // OAuth error occurred
         setError(`OAuth error: ${error}`);
         sessionStorage.removeItem('oauth_platform');
-        
+
         // Clear URL parameters
         const newUrl = window.location.pathname;
         window.history.replaceState({}, document.title, newUrl);

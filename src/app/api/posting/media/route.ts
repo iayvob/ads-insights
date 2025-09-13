@@ -10,18 +10,15 @@ import { unlink } from "fs/promises"
 import { join } from "path"
 import { tmpdir } from "os"
 import { MediaFileUtils } from "@/utils/media-file-utils"
-import { ObjectId } from "mongodb"
+import { env } from "@/validations/env"
 
 // Initialize Cloudinary
 cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME || "",
-  api_key: process.env.CLOUDINARY_API_KEY || "",
-  api_secret: process.env.CLOUDINARY_API_SECRET || "",
+  cloud_name: env.CLOUDINARY_CLOUD_NAME || "",
+  api_key: env.CLOUDINARY_API_KEY || "",
+  api_secret: env.CLOUDINARY_API_SECRET || "",
   secure: true
 });
-
-const UPLOAD_PRESET = process.env.CLOUDINARY_UPLOAD_PRESET || "adinsights_media"
-const MAX_TEMP_FILE_SIZE = 50 * 1024 * 1024 // 50MB
 
 export async function POST(request: NextRequest) {
   try {

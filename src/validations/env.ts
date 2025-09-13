@@ -9,7 +9,7 @@ const envSchema = z.object({
   JWT_SECRET: z.string().min(32),
   JWT_REFRESH_SECRET: z.string().min(32),
   DATABASE_URL: z.string().url(),
-  
+
   // OAuth Configuration
   // Facebook
   FACEBOOK_APP_ID: z.string().min(1),
@@ -52,7 +52,13 @@ const envSchema = z.object({
   SMTP_PORT: z.string().min(1).default("587"),
   SMTP_USER: z.string().min(1),
   SMTP_PASS: z.string().min(1),
-  SMTP_FROM: z.string().email().default("iayvob-support@gmail.com")
+  SMTP_FROM: z.string().email().default("iayvob-support@gmail.com"),
+
+
+  // Cloudinary Configuration (required for media uploads)
+  CLOUDINARY_CLOUD_NAME: z.string().min(1),
+  CLOUDINARY_API_KEY: z.string().min(1),
+  CLOUDINARY_API_SECRET: z.string().min(1),
 })
 
 // Validate environment variables only on the server to avoid client-side Zod errors
