@@ -3,7 +3,7 @@ import { ServerSessionService } from "@/services/session-server"
 import { validatePremiumAccess } from "@/lib/subscription-access"
 import { PlatformPostingService } from "@/services/platform-posting"
 import { platformRateLimit } from "@/config/middleware/platform-rate-limiter"
-import { getFacebookConnection, validateFacebookPageAccess, logPostActivity, postToFacebook } from "./helpers"
+import { getFacebookConnection, validateFacebookAccess, logPostActivity, postToFacebook } from "./helpers"
 
 interface FacebookPostRequest {
   content: {
@@ -102,11 +102,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate page permissions
-    const hasPageAccess = await validateFacebookPageAccess(
-      facebookConnection.accessToken,
-      targetPageId,
-      session.userId
-    )
+    const hasPageAccess = await validateFacebookAccess(session.userId)
 
     if (!hasPageAccess) {
       return NextResponse.json(
@@ -143,9 +139,7 @@ export async function POST(request: NextRequest) {
       content: postContent,
       media: processedMedia,
       pageId: targetPageId,
-      accessToken: facebookConnection.accessToken,
-      pageAccessToken: facebookConnection.pageAccessToken,
-      scheduling: scheduling
+      accessToken: facebookConnection.accessToken
     });
 
     if (result.success) {
@@ -155,7 +149,7 @@ export async function POST(request: NextRequest) {
 
       if (postId) {
         // Log successful post
-        await logPostActivity(session.userId, 'facebook', targetPageId, postId)
+        await logPostActivity(session.userId, postId)
 
         return NextResponse.json({
           success: true,
@@ -179,7 +173,7 @@ export async function POST(request: NextRequest) {
         {
           success: false,
           error: result.error,
-          message: typeof result.error === 'object' && result.error !== null && 'message' in result.error ? (result.error as { message: string }).message : "Unknown error"
+          message: result.error || "Unknown error"
         },
         { status: statusCode }
       )

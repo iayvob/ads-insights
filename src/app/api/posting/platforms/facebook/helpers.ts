@@ -1,141 +1,74 @@
-// Helper Functions for Facebook Route
+// Helper Functions for Facebook Route - Following the documentation exactly
 import { NextRequest } from "next/server";
 import { ServerSessionService } from "@/services/session-server";
 import { prisma } from "@/config/database/prisma";
+import { postTextOrLink, postImage, postVideo } from "@/lib/facebook";
 
 export interface FacebookConnection {
     accessToken: string;
-    userId: string; // Facebook User ID
-    pageId: string; // Facebook Page ID
-    pageAccessToken?: string; // Page-specific access token
+    userId: string;
+    pageId: string;
     connected: boolean;
     expiresAt?: Date;
-    scopes?: string[];
     pageName?: string;
+    scopes?: string[];
 }
 
-/**
- * Get Facebook connection details for the current user
- */
 export async function getFacebookConnection(request: NextRequest): Promise<FacebookConnection | null> {
     try {
         const session = await ServerSessionService.getSession(request);
-        if (!session?.userId || !session.connectedPlatforms?.facebook) {
+        if (!session?.userId) {
             return null;
         }
 
-        const facebookData = session.connectedPlatforms.facebook;
+        // Get Facebook auth provider from database
+        const authProvider = await prisma.authProvider.findFirst({
+            where: {
+                userId: session.userId,
+                provider: 'facebook'
+            }
+        });
 
-        // Check if Facebook connection exists and is still valid
-        if (!facebookData.account_tokens.access_token ||
-            new Date(facebookData.account_tokens.expires_at) <= new Date()) {
+        if (!authProvider || !authProvider.accessToken) {
             return null;
         }
 
-        // Get Facebook User ID from the connection
-        const fbUserId = facebookData.account.userId;
-
-        // Get Facebook Page ID from connected account
-        const pageId = facebookData.account.advertisingAccountId;
-
-        // Get page-specific access token (needed for posting to a page)
-        const pageAccessToken = await getPageAccessToken(
-            facebookData.account_tokens.access_token,
-            pageId || ''
-        );
+        // Check if token is expired (if expiresAt is set)
+        if (authProvider.expiresAt && new Date(authProvider.expiresAt) <= new Date()) {
+            return null;
+        }
 
         return {
-            accessToken: facebookData.account_tokens.access_token,
-            userId: fbUserId || '',
-            pageId: pageId || '',
-            pageAccessToken: pageAccessToken,
+            accessToken: authProvider.accessToken,
+            userId: authProvider.providerId || '',
+            pageId: authProvider.advertisingAccountId || '', // Use advertising account ID as page ID
             connected: true,
-            expiresAt: new Date(facebookData.account_tokens.expires_at),
-            pageName: facebookData.account.username
+            expiresAt: authProvider.expiresAt || undefined,
+            pageName: authProvider.username || ''
         };
     } catch (error) {
-        console.error("Error getting Facebook connection:", error);
+        console.error("Error fetching Facebook connection:", error);
         return null;
     }
 }
 
-/**
- * Validate if user has access to post to the specified Facebook page
- */
-export async function validateFacebookPageAccess(accessToken: string, pageId: string, userId: string): Promise<boolean> {
+export async function validateFacebookAccess(userId: string): Promise<boolean> {
     try {
-        if (!accessToken || !pageId) {
-            return false;
-        }
-
-        // Call the Graph API to check page permissions
-        // Real implementation would verify manage_pages and publish_pages permissions
-        try {
-            const response = await fetch(
-                `https://graph.facebook.com/v19.0/${pageId}?fields=access_token,name&access_token=${accessToken}`,
-                { method: 'GET' }
-            );
-
-            const pageData = await response.json();
-
-            // If we can get the page data, user likely has access
-            if (pageData.id && pageData.name) {
-                return true;
+        // Check if user has Facebook provider saved in the database
+        const authProvider = await prisma.authProvider.findFirst({
+            where: {
+                userId,
+                provider: 'facebook'
             }
+        });
 
-            return false;
-        } catch (apiError) {
-            console.error('Facebook Graph API error:', apiError);
-
-            // Fallback to database check
-            const authProvider = await prisma.authProvider.findFirst({
-                where: {
-                    userId,
-                    provider: 'facebook',
-                    advertisingAccountId: pageId
-                }
-            });
-
-            return !!authProvider && !!accessToken;
-        }
+        return !!authProvider && !!authProvider.accessToken && !!authProvider.advertisingAccountId;
     } catch (error) {
-        console.error('Error validating Facebook page access:', error);
+        console.error('Error validating Facebook access:', error);
         return false;
     }
 }
 
-/**
- * Get page-specific access token required for posting to a Facebook page
- */
-export async function getPageAccessToken(userAccessToken: string, pageId: string): Promise<string | undefined> {
-    try {
-        if (!userAccessToken || !pageId) {
-            return undefined;
-        }
-
-        // Call Graph API to get the page access token
-        const response = await fetch(
-            `https://graph.facebook.com/v19.0/${pageId}?fields=access_token&access_token=${userAccessToken}`,
-            { method: 'GET' }
-        );
-
-        const pageData = await response.json();
-
-        if (pageData.error) {
-            console.error('Error getting page access token:', pageData.error);
-            return undefined;
-        }
-
-        return pageData.access_token;
-    } catch (error) {
-        console.error('Error getting page access token:', error);
-        return undefined;
-    }
-}
-
-/**
- * Post content to Facebook page
- */
 export async function postToFacebook(params: {
     content: string;
     media?: Array<{
@@ -143,309 +76,173 @@ export async function postToFacebook(params: {
         url: string;
         type: 'image' | 'video';
         mimeType?: string;
+        alt?: string;
     }>;
     pageId: string;
     accessToken: string;
-    pageAccessToken?: string;
-    scheduling?: {
-        publishAt: string;
-        timezone: string;
-    };
 }) {
-    const { content, media, pageId, accessToken, pageAccessToken, scheduling } = params;
+    const { content, media, pageId, accessToken } = params;
 
     try {
-        // Use page-specific access token if available, fall back to user access token
-        const token = pageAccessToken || accessToken;
+        console.log(`Posting to Facebook Page ${pageId} with content length: ${content.length}`);
 
-        // Prepare post data
-        const postData: Record<string, any> = {
-            message: content
-        };
-
-        // Add scheduling if provided
-        if (scheduling) {
-            const publishTime = Math.floor(new Date(scheduling.publishAt).getTime() / 1000);
-            postData.published = false;
-            postData.scheduled_publish_time = publishTime;
-        }
-
-        // Handle different post types
+        // Facebook supports text-only posts, single media posts, and multi-media posts
         if (!media || media.length === 0) {
             // Text-only post
-            return await createTextPost(pageId, token, postData);
+            console.log('Creating text-only post on Facebook');
+
+            try {
+                const result = await postTextOrLink(pageId, accessToken, content);
+
+                if (result && (result as any).id) {
+                    const postId = (result as any).id;
+                    console.log(`Facebook text post created successfully: ${postId}`);
+
+                    return {
+                        platformPostId: postId,
+                        status: "published",
+                        publishedAt: new Date().toISOString(),
+                        url: `https://facebook.com/${postId}`,
+                        type: "text_post",
+                        success: true
+                    };
+                } else {
+                    console.error('Facebook API returned no result for text post');
+                    return {
+                        status: "failed",
+                        error: "Facebook API returned no result - post may not have been created",
+                        success: false
+                    };
+                }
+            } catch (textError: any) {
+                console.error('Error posting text to Facebook:', textError);
+                return {
+                    status: "failed",
+                    error: `Failed to post text to Facebook: ${textError.message || textError}`,
+                    success: false
+                };
+            }
         } else if (media.length === 1) {
             // Single media post
-            return await createSingleMediaPost(pageId, token, postData, media[0]);
+            const mediaItem = media[0];
+            console.log(`Posting single ${mediaItem.type} to Facebook`);
+
+            try {
+                let result;
+
+                if (mediaItem.type === 'video') {
+                    result = await postVideo(pageId, accessToken, mediaItem.url, content);
+                } else {
+                    result = await postImage(pageId, accessToken, mediaItem.url, content);
+                }
+
+                if (result && (result as any).id) {
+                    const postId = (result as any).id;
+                    console.log(`Facebook ${mediaItem.type} post created successfully: ${postId}`);
+
+                    return {
+                        platformPostId: postId,
+                        status: "published",
+                        publishedAt: new Date().toISOString(),
+                        url: `https://facebook.com/${postId}`,
+                        type: mediaItem.type === 'video' ? "video_post" : "image_post",
+                        success: true
+                    };
+                } else {
+                    console.error(`Facebook API returned no result for ${mediaItem.type} post`);
+                    return {
+                        status: "failed",
+                        error: `Facebook API returned no result for ${mediaItem.type} post`,
+                        success: false
+                    };
+                }
+            } catch (mediaError: any) {
+                console.error(`Error posting ${mediaItem.type} to Facebook:`, mediaError);
+                return {
+                    status: "failed",
+                    error: `Failed to post ${mediaItem.type} to Facebook: ${mediaError.message || mediaError}`,
+                    success: false
+                };
+            }
         } else {
-            // Multi-media post (carousel)
-            return await createMultiMediaPost(pageId, token, postData, media);
+            // Multiple media posts - Facebook supports this but requires different implementation
+            // For now, post the first media item with a note about multi-media support
+            console.log('Multiple media detected - posting first item (full multi-media support coming soon)');
+
+            const firstMedia = media[0];
+
+            try {
+                let result;
+
+                if (firstMedia.type === 'video') {
+                    result = await postVideo(pageId, accessToken, firstMedia.url, content);
+                } else {
+                    result = await postImage(pageId, accessToken, firstMedia.url, content);
+                }
+
+                if (result && (result as any).id) {
+                    const postId = (result as any).id;
+
+                    return {
+                        platformPostId: postId,
+                        status: "published",
+                        publishedAt: new Date().toISOString(),
+                        url: `https://facebook.com/${postId}`,
+                        type: "multi_media_post",
+                        success: true,
+                        note: `Posted first of ${media.length} media items. Full multi-media support coming soon.`
+                    };
+                } else {
+                    return {
+                        status: "failed",
+                        error: "Facebook API returned no result for multi-media post",
+                        success: false
+                    };
+                }
+            } catch (multiMediaError: any) {
+                console.error('Error posting multi-media to Facebook:', multiMediaError);
+                return {
+                    status: "failed",
+                    error: `Failed to post multi-media to Facebook: ${multiMediaError.message || multiMediaError}`,
+                    success: false
+                };
+            }
         }
-    } catch (error) {
-        console.error("Facebook posting error:", error);
+
+    } catch (error: any) {
+        console.error("Facebook API error:", error);
+
+        let errorMessage = "Failed to post to Facebook";
+
+        // Handle specific Facebook API errors
+        if (error.error && error.error.message) {
+            errorMessage = error.error.message;
+        } else if (error.message) {
+            errorMessage = error.message;
+        }
+
         return {
-            success: false,
-            error: `Facebook API error: ${error instanceof Error ? error.message : String(error)}`
+            status: "failed",
+            error: errorMessage,
+            success: false
         };
     }
 }
-
-/**
- * Create a text-only post on Facebook
- */
-async function createTextPost(pageId: string, accessToken: string, postData: Record<string, any>) {
+export async function logPostActivity(userId: string, postId: string): Promise<void> {
     try {
-        const response = await fetch(
-            `https://graph.facebook.com/v19.0/${pageId}/feed`,
-            {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    ...postData,
-                    access_token: accessToken
-                })
-            }
-        );
+        console.log(`[${new Date().toISOString()}] User ${userId} posted to Facebook: ${postId}`);
 
-        const result = await response.json();
-
-        if (result.error) {
-            return {
-                success: false,
-                error: result.error.message
-            };
-        }
-
-        return {
-            success: true,
-            platformPostId: result.id,
-            status: postData.published === false ? "scheduled" : "published",
-            publishedAt: new Date().toISOString(),
-            url: `https://facebook.com/${result.id}`,
-            type: "text_post"
-        };
+        // You can add database logging here if needed
+        // await prisma.postActivity.create({
+        //     data: {
+        //         userId,
+        //         postId: postId,
+        //         platform: 'facebook',
+        //         activityType: 'post_created',
+        //         timestamp: new Date()
+        //     }
+        // });
     } catch (error) {
-        return {
-            success: false,
-            error: `Failed to create Facebook text post: ${error instanceof Error ? error.message : String(error)}`
-        };
-    }
-}
-
-/**
- * Create a single media post on Facebook
- */
-async function createSingleMediaPost(
-    pageId: string,
-    accessToken: string,
-    postData: Record<string, any>,
-    mediaItem: {
-        id: string;
-        url: string;
-        type: 'image' | 'video';
-        mimeType?: string;
-    }
-) {
-    try {
-        // For a real implementation, we would first upload the media to Facebook
-        // and then create a post with the media ID
-
-        // Step 1: Upload media
-        const mediaResponse = await uploadMediaToFacebook(pageId, accessToken, mediaItem);
-
-        if (!mediaResponse.success) {
-            return mediaResponse;
-        }
-
-        // Step 2: Create post with attached media
-        const response = await fetch(
-            `https://graph.facebook.com/v19.0/${pageId}/feed`,
-            {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    ...postData,
-                    attached_media: [{ media_fbid: mediaResponse.mediaId }],
-                    access_token: accessToken
-                })
-            }
-        );
-
-        const result = await response.json();
-
-        if (result.error) {
-            return {
-                success: false,
-                error: result.error.message
-            };
-        }
-
-        return {
-            success: true,
-            platformPostId: result.id,
-            status: postData.published === false ? "scheduled" : "published",
-            publishedAt: new Date().toISOString(),
-            url: `https://facebook.com/${result.id}`,
-            type: mediaItem.type === 'video' ? "video_post" : "photo_post"
-        };
-    } catch (error) {
-        return {
-            success: false,
-            error: `Failed to create Facebook media post: ${error instanceof Error ? error.message : String(error)}`
-        };
-    }
-}
-
-/**
- * Create a multi-media post (carousel) on Facebook
- */
-async function createMultiMediaPost(
-    pageId: string,
-    accessToken: string,
-    postData: Record<string, any>,
-    mediaItems: Array<{
-        id: string;
-        url: string;
-        type: 'image' | 'video';
-        mimeType?: string;
-    }>
-) {
-    try {
-        // Step 1: Upload all media items
-        const mediaIds = [];
-
-        for (const mediaItem of mediaItems) {
-            const mediaResponse = await uploadMediaToFacebook(pageId, accessToken, mediaItem);
-
-            if (!mediaResponse.success) {
-                return mediaResponse;
-            }
-
-            mediaIds.push({ media_fbid: mediaResponse.mediaId });
-        }
-
-        // Step 2: Create post with all attached media
-        const response = await fetch(
-            `https://graph.facebook.com/v19.0/${pageId}/feed`,
-            {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    ...postData,
-                    attached_media: mediaIds,
-                    access_token: accessToken
-                })
-            }
-        );
-
-        const result = await response.json();
-
-        if (result.error) {
-            return {
-                success: false,
-                error: result.error.message
-            };
-        }
-
-        return {
-            success: true,
-            platformPostId: result.id,
-            status: postData.published === false ? "scheduled" : "published",
-            publishedAt: new Date().toISOString(),
-            url: `https://facebook.com/${result.id}`,
-            type: "carousel_post"
-        };
-    } catch (error) {
-        return {
-            success: false,
-            error: `Failed to create Facebook carousel post: ${error instanceof Error ? error.message : String(error)}`
-        };
-    }
-}
-
-/**
- * Upload media to Facebook before posting
- */
-async function uploadMediaToFacebook(
-    pageId: string,
-    accessToken: string,
-    mediaItem: {
-        id: string;
-        url: string;
-        type: 'image' | 'video';
-        mimeType?: string;
-    }
-) {
-    try {
-        // In a real implementation, this would upload the media to Facebook
-        // Different endpoints for photos vs videos
-        const endpoint = mediaItem.type === 'video' ? 'videos' : 'photos';
-        const urlParam = mediaItem.type === 'video' ? 'file_url' : 'url';
-
-        const response = await fetch(
-            `https://graph.facebook.com/v19.0/${pageId}/${endpoint}`,
-            {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    [urlParam]: mediaItem.url,
-                    published: false, // Don't publish immediately
-                    access_token: accessToken
-                })
-            }
-        );
-
-        const result = await response.json();
-
-        if (result.error) {
-            return {
-                success: false,
-                error: `Failed to upload media to Facebook: ${result.error.message}`
-            };
-        }
-
-        return {
-            success: true,
-            mediaId: result.id
-        };
-    } catch (error) {
-        return {
-            success: false,
-            error: `Failed to upload media to Facebook: ${error instanceof Error ? error.message : String(error)}`
-        };
-    }
-}
-
-/**
- * Log post activity for analytics
- */
-export async function logPostActivity(userId: string, platform: string, pageId: string, postId: string): Promise<void> {
-    try {
-        // In a production app, you would log this activity to the database
-        console.log(`[${new Date().toISOString()}] User ${userId} posted to ${platform} page ${pageId}: ${postId}`);
-
-        // Example of what real logging might look like:
-        /*
-        await prisma.postActivity.create({
-            data: {
-                userId,
-                postId,
-                platform,
-                pageId,
-                activityType: 'post_created',
-                timestamp: new Date()
-            }
-        });
-        */
-    } catch (error) {
-        console.error('Error logging post activity:', error);
+        console.error('Error logging Facebook post activity:', error);
     }
 }
