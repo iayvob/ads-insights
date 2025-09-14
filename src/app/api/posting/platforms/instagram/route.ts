@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { ServerSessionService } from "@/services/session-server"
 import { validatePremiumAccess } from "@/lib/subscription-access"
 import { platformRateLimit } from "@/config/middleware/platform-rate-limiter"
-import { getInstagramConnection, validateInstagramPermissions, postToInstagram, logPostActivity } from "./helpers"
+import { getInstagramConnection, validateInstagramAccess, postToInstagram, logPostActivity } from "./helpers"
 
 export async function POST(request: NextRequest) {
   try {
@@ -69,10 +69,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate Instagram permissions
-    const hasPermissions = await validateInstagramPermissions(
-      instagramConnection.accessToken || '',
-      session.userId
-    )
+    const hasPermissions = await validateInstagramAccess(session.userId)
 
     if (!hasPermissions) {
       return NextResponse.json(
