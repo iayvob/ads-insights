@@ -61,6 +61,11 @@ export default function PostingPage() {
   const [currentHashtag, setCurrentHashtag] = useState('');
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
 
+  // Determine disabled states
+  const isPublishing = isPosting || isUploading;
+  const noPlatformsSelected = selectedPlatforms.length === 0;
+  const shouldDisableContent = isPublishing || noPlatformsSelected;
+
   // Check if user has premium access
   const isPremium =
     session?.user?.plan === SubscriptionPlan.PREMIUM_MONTHLY ||
@@ -304,10 +309,21 @@ export default function PostingPage() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <Textarea
-                    placeholder="What's on your mind? Share your thoughts with the world..."
+                    placeholder={
+                      noPlatformsSelected
+                        ? 'Please select at least one platform to start composing...'
+                        : isPublishing
+                          ? 'Publishing in progress...'
+                          : "What's on your mind? Share your thoughts with the world..."
+                    }
                     value={postContent}
                     onChange={(e) => setPostContent(e.target.value)}
-                    className="min-h-[120px] resize-none border-gray-200 focus:border-purple-400 focus:ring-purple-400"
+                    disabled={shouldDisableContent}
+                    className={`min-h-[120px] resize-none border-gray-200 focus:border-purple-400 focus:ring-purple-400 ${
+                      shouldDisableContent
+                        ? 'bg-gray-50 text-gray-400 cursor-not-allowed'
+                        : ''
+                    }`}
                   />
 
                   {/* Validation Errors */}
@@ -366,6 +382,14 @@ export default function PostingPage() {
                 acceptedTypes={['image/*', 'video/*']}
                 maxFiles={selectedPlatforms.includes('twitter') ? 4 : 10}
                 maxSize={50}
+                disabled={shouldDisableContent}
+                disabledMessage={
+                  isPublishing
+                    ? 'Cannot upload files while publishing...'
+                    : noPlatformsSelected
+                      ? 'Please select at least one platform to enable file upload'
+                      : undefined
+                }
               />
 
               {/* Display uploaded media */}
@@ -512,6 +536,7 @@ export default function PostingPage() {
                     <PostScheduler
                       selectedDate={scheduledDate}
                       onDateChange={setScheduledDate}
+                      disabled={shouldDisableContent}
                     />
                   )}
                 </CardContent>
@@ -530,6 +555,7 @@ export default function PostingPage() {
                 onHashtagsChange={setHashtags}
                 selectedPlatforms={selectedPlatforms}
                 currentHashtags={hashtags}
+                disabled={shouldDisableContent}
               />
             </motion.div>
 
@@ -544,6 +570,7 @@ export default function PostingPage() {
                 size="lg"
                 className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white shadow-lg"
                 disabled={
+                  shouldDisableContent ||
                   (!postContent.trim() && uploadedMedia.length === 0) ||
                   selectedPlatforms.length === 0 ||
                   isPosting ||
@@ -571,6 +598,7 @@ export default function PostingPage() {
                 size="lg"
                 className="w-full border-gray-300 hover:bg-gray-50"
                 disabled={
+                  shouldDisableContent ||
                   (!postContent.trim() && uploadedMedia.length === 0) ||
                   isPosting
                 }

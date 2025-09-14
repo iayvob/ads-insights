@@ -43,6 +43,7 @@ interface AIEnhancementPanelProps {
   selectedPlatforms: string[];
   onHashtagsChange: (hashtags: string[]) => void;
   currentHashtags?: string[];
+  disabled?: boolean;
 }
 
 export function AIEnhancementPanel({
@@ -51,6 +52,7 @@ export function AIEnhancementPanel({
   selectedPlatforms,
   onHashtagsChange,
   currentHashtags = [],
+  disabled = false,
 }: AIEnhancementPanelProps) {
   const {
     isEnhancing,
@@ -172,12 +174,14 @@ export function AIEnhancementPanel({
                   placeholder="Describe what you want to post about... (e.g., 'Announcing our new product launch')"
                   value={contentPrompt}
                   onChange={(e) => setContentPrompt(e.target.value)}
+                  disabled={disabled}
                   className="min-h-[80px] border-purple-200 focus:border-purple-400"
                 />
                 <div className="flex items-center gap-3">
                   <Button
                     onClick={handleGenerateContent}
                     disabled={
+                      disabled ||
                       isGeneratingContent ||
                       !contentPrompt.trim() ||
                       selectedPlatforms.length === 0
@@ -251,6 +255,7 @@ export function AIEnhancementPanel({
                 <Button
                   onClick={handleEnhanceContent}
                   disabled={
+                    disabled ||
                     isEnhancing ||
                     !content.trim() ||
                     selectedPlatforms.length === 0
@@ -273,7 +278,7 @@ export function AIEnhancementPanel({
 
                 <Button
                   onClick={handleCopyContent}
-                  disabled={!content.trim()}
+                  disabled={disabled || !content.trim()}
                   variant="ghost"
                   size="sm"
                   className="text-gray-600 hover:text-gray-800"
@@ -299,6 +304,7 @@ export function AIEnhancementPanel({
                 <Button
                   onClick={handleGenerateHashtags}
                   disabled={
+                    disabled ||
                     isGeneratingHashtags ||
                     !content.trim() ||
                     selectedPlatforms.length === 0
@@ -339,6 +345,7 @@ export function AIEnhancementPanel({
                       >
                         <Button
                           onClick={() => handleAddHashtag(item.hashtag || item)}
+                          disabled={disabled}
                           variant="outline"
                           size="sm"
                           className="w-full justify-start text-left h-auto py-2 px-3 border-gray-200 hover:border-blue-300 hover:bg-blue-50"

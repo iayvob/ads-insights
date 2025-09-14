@@ -32,6 +32,8 @@ interface MediaUploaderProps {
   maxFiles?: number;
   maxSize?: number; // in MB
   acceptedTypes?: string[];
+  disabled?: boolean;
+  disabledMessage?: string;
 }
 
 export function MediaUploader({
@@ -40,6 +42,8 @@ export function MediaUploader({
   maxFiles = 10,
   maxSize = 50,
   acceptedTypes = ['image/*', 'video/*'],
+  disabled = false,
+  disabledMessage,
 }: MediaUploaderProps) {
   const [mediaFiles, setMediaFiles] = useState<MediaFile[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -64,7 +68,7 @@ export function MediaUploader({
 
   const handleFileSelect = useCallback(
     (selectedFiles: FileList | null) => {
-      if (!selectedFiles) return;
+      if (!selectedFiles || disabled) return;
 
       const newFiles = Array.from(selectedFiles);
       const totalFiles = files.length + newFiles.length;
@@ -133,15 +137,22 @@ export function MediaUploader({
     (e: React.DragEvent) => {
       e.preventDefault();
       setIsDragOver(false);
-      handleFileSelect(e.dataTransfer.files);
+      if (!disabled) {
+        handleFileSelect(e.dataTransfer.files);
+      }
     },
-    [handleFileSelect]
+    [handleFileSelect, disabled]
   );
 
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragOver(true);
-  }, []);
+  const handleDragOver = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      if (!disabled) {
+        setIsDragOver(true);
+      }
+    },
+    [disabled]
+  );
 
   const handleDragLeave = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -149,6 +160,8 @@ export function MediaUploader({
   }, []);
 
   const removeFile = (fileId: string) => {
+    if (disabled) return;
+
     const mediaFile = mediaFiles.find((mf) => mf.id === fileId);
     if (mediaFile) {
       URL.revokeObjectURL(mediaFile.preview);
@@ -160,7 +173,6 @@ export function MediaUploader({
       }, 0);
     }
   };
-
   const getFileIcon = (type: MediaFile['type']) => {
     switch (type) {
       case 'image':
@@ -205,11 +217,13 @@ export function MediaUploader({
           className={`
             relative border-2 border-dashed rounded-lg p-8 text-center transition-all duration-200
             ${
-              isDragOver
-                ? 'border-blue-400 bg-blue-50'
-                : 'border-gray-300 hover:border-gray-400 hover:bg-gray-50'
+              disabled
+                ? 'border-gray-200 bg-gray-50 cursor-not-allowed'
+                : isDragOver
+                  ? 'border-blue-400 bg-blue-50'
+                  : 'border-gray-300 hover:border-gray-400 hover:bg-gray-50 cursor-pointer'
             }
-            ${mediaFiles.length >= maxFiles ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}
+            ${mediaFiles.length >= maxFiles && !disabled ? 'opacity-50 pointer-events-none' : ''}
           `}
         >
           <input
@@ -218,7 +232,7 @@ export function MediaUploader({
             accept={acceptedTypes.join(',')}
             onChange={(e) => handleFileSelect(e.target.files)}
             className="absolute inset-0 opacity-0 cursor-pointer"
-            disabled={mediaFiles.length >= maxFiles}
+            disabled={disabled || mediaFiles.length >= maxFiles}
             aria-label="Upload media files"
             title="Upload media files"
           />
@@ -228,18 +242,45 @@ export function MediaUploader({
             className="space-y-3"
           >
             <div className="flex justify-center">
-              <div className="p-3 bg-blue-100 rounded-full">
-                <Upload className="h-8 w-8 text-blue-600" />
+              <div
+                className={`p-3 rounded-full ${
+                  disabled ? 'bg-gray-100' : 'bg-blue-100'
+                }`}
+              >
+                <Upload
+                  className={`h-8 w-8 ${
+                    disabled ? 'text-gray-400' : 'text-blue-600'
+                  }`}
+                />
               </div>
             </div>
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900">
-                {isDragOver ? 'Drop files here' : 'Upload media files'}
-              </h3>
-              <p className="text-sm text-gray-500">
-                Drag and drop or click to browse
-              </p>
-            </div>
+
+            {disabled && disabledMessage ? (
+              <div>
+                <h3 className="text-lg font-semibold text-gray-400">
+                  Upload Disabled
+                </h3>
+                <p className="text-sm text-gray-400">{disabledMessage}</p>
+              </div>
+            ) : (
+              <div>
+                <h3
+                  className={`text-lg font-semibold ${
+                    disabled ? 'text-gray-400' : 'text-gray-900'
+                  }`}
+                >
+                  {isDragOver ? 'Drop files here' : 'Upload media files'}
+                </h3>
+                <p
+                  className={`text-sm ${
+                    disabled ? 'text-gray-400' : 'text-gray-500'
+                  }`}
+                >
+                  Drag and drop or click to browse
+                </p>
+              </div>
+            )}
+
             <div className="flex justify-center gap-4 text-xs text-gray-400">
               <span className="flex items-center gap-1">
                 <Image className="h-3 w-3" />
@@ -334,6 +375,7 @@ export function MediaUploader({
                             size="sm"
                             variant="secondary"
                             className="h-8 w-8 p-0"
+                            disabled={disabled}
                           >
                             <Crop className="h-4 w-4" />
                           </Button>
@@ -341,6 +383,7 @@ export function MediaUploader({
                             size="sm"
                             variant="secondary"
                             className="h-8 w-8 p-0"
+                            disabled={disabled}
                           >
                             <RotateCcw className="h-4 w-4" />
                           </Button>
@@ -348,6 +391,7 @@ export function MediaUploader({
                             size="sm"
                             variant="secondary"
                             className="h-8 w-8 p-0"
+                            disabled={disabled}
                           >
                             <Sparkles className="h-4 w-4" />
                           </Button>
@@ -358,6 +402,7 @@ export function MediaUploader({
                         variant="destructive"
                         className="h-8 w-8 p-0"
                         onClick={() => removeFile(mediaFile.id)}
+                        disabled={disabled}
                       >
                         <X className="h-4 w-4" />
                       </Button>
