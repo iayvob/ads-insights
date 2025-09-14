@@ -5,9 +5,10 @@ export type SocialPlatform = "instagram" | "facebook" | "twitter"
 
 // Media validation schemas
 export const MediaUploadSchema = z.object({
+  id: z.string().optional(), // Database ID for uploaded media
   type: z.enum(["image", "video"]),
   size: z.number().max(50 * 1024 * 1024), // 50MB max
-  mimeType: z.string().regex(/^(image|video)\//),
+  mimeType: z.string().regex(/^(image|video)\//).optional(), // Optional since backend will fetch from DB
   filename: z.string().min(1).max(255),
   duration: z.number().optional(), // for videos
   dimensions: z.object({

@@ -20,6 +20,14 @@ cloudinary.config({
   secure: true
 });
 
+// Debug Cloudinary configuration
+console.log('Cloudinary config:', {
+  hasCloudName: !!env.CLOUDINARY_CLOUD_NAME,
+  hasApiKey: !!env.CLOUDINARY_API_KEY,
+  hasApiSecret: !!env.CLOUDINARY_API_SECRET,
+  cloudName: env.CLOUDINARY_CLOUD_NAME?.substring(0, 5) + '...' || 'NOT_SET'
+});
+
 export async function POST(request: NextRequest) {
   try {
     // Get and validate session
@@ -297,6 +305,14 @@ async function processFileUpload(file: File, userId: string): Promise<MediaUploa
 
     // 5. Clean up temp file
     await unlink(tempFilePath)
+
+    console.log('Cloudinary upload result:', {
+      public_id: uploadResult.public_id,
+      secure_url: uploadResult.secure_url,
+      url: uploadResult.url,
+      resource_type: uploadResult.resource_type,
+      hasSecureUrl: !!uploadResult.secure_url
+    });
 
     // 6. Extract dimensions and metadata from Cloudinary response
     if (uploadResult.width && uploadResult.height) {

@@ -121,6 +121,12 @@ export default function PostingPage() {
     }
   };
 
+  const handleMediaSelect = async (files: File[]) => {
+    // This just handles file selection from MediaUploader
+    // Store files for upload when user clicks publish
+    setMediaFiles(files);
+  };
+
   const handleMediaUpload = async (files: File[]) => {
     if (selectedPlatforms.length === 0) {
       alert('Please select platforms first');
@@ -128,8 +134,8 @@ export default function PostingPage() {
     }
 
     try {
+      // uploadMedia already handles uploading and updating uploadedMedia state
       await uploadMedia(files, selectedPlatforms);
-      setMediaFiles((prev) => [...prev, ...files]);
     } catch (error) {
       console.error('Media upload failed:', error);
     }
@@ -147,7 +153,11 @@ export default function PostingPage() {
   };
 
   const handlePublish = async (isDraft = false) => {
-    if (!postContent.trim() && uploadedMedia.length === 0) {
+    if (
+      !postContent.trim() &&
+      uploadedMedia.length === 0 &&
+      mediaFiles.length === 0
+    ) {
       alert('Please add content or media to your post');
       return;
     }
@@ -156,6 +166,37 @@ export default function PostingPage() {
       alert('Please select at least one platform');
       return;
     }
+
+    // Upload selected media files first if any
+    if (mediaFiles.length > 0) {
+      console.log('🔍 DEBUG: Starting media upload process');
+      console.log('🔍 DEBUG: mediaFiles.length:', mediaFiles.length);
+      console.log(
+        '🔍 DEBUG: Current uploadedMedia.length:',
+        uploadedMedia.length
+      );
+
+      try {
+        await handleMediaUpload(mediaFiles);
+        console.log(
+          '🔍 DEBUG: After handleMediaUpload, uploadedMedia.length:',
+          uploadedMedia.length
+        );
+
+        // Clear the selected files after upload
+        setMediaFiles([]);
+      } catch (error) {
+        console.error('Failed to upload media files:', error);
+        alert('Failed to upload media files');
+        return;
+      }
+    }
+
+    console.log(
+      '🔍 DEBUG: About to create post with uploadedMedia.length:',
+      uploadedMedia.length
+    );
+    console.log('🔍 DEBUG: uploadedMedia data:', uploadedMedia);
 
     // Ensure Instagram posts have media
     if (selectedPlatforms.includes('instagram') && uploadedMedia.length === 0) {
@@ -169,6 +210,17 @@ export default function PostingPage() {
     }
 
     try {
+      const mediaForPost = uploadedMedia.map((m) => ({
+        id: m.id, // Include the database ID
+        type: m.type,
+        size: m.size, // Use actual size from upload
+        filename: m.filename,
+        dimensions: m.dimensions,
+        duration: m.duration,
+      }));
+
+      console.log('🔍 DEBUG: mediaForPost:', mediaForPost);
+
       const postData = {
         platforms: selectedPlatforms,
         content: {
@@ -176,14 +228,7 @@ export default function PostingPage() {
           hashtags,
           mentions: extractMentions(postContent),
         },
-        media: uploadedMedia.map((m) => ({
-          type: m.type,
-          size: 0, // This would be set from the actual file
-          mimeType: m.type === 'image' ? 'image/jpeg' : 'video/mp4',
-          filename: m.filename,
-          dimensions: m.dimensions,
-          duration: m.duration,
-        })),
+        media: mediaForPost,
         schedule:
           isScheduled && scheduledDate
             ? {
@@ -317,7 +362,7 @@ export default function PostingPage() {
             >
               <MediaUploader
                 files={mediaFiles}
-                onFilesChange={handleMediaUpload}
+                onFilesChange={handleMediaSelect}
                 acceptedTypes={['image/*', 'video/*']}
                 maxFiles={selectedPlatforms.includes('twitter') ? 4 : 10}
                 maxSize={50}

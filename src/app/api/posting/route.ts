@@ -326,8 +326,8 @@ function validatePlatformContent(platforms: string[], content: any, media: Media
     // Validate media types and sizes
     if (media && media.length > 0) {
       for (const mediaItem of media) {
-        // Check if this media type is supported for this platform
-        if (!constraints.supportedMediaTypes.includes(mediaItem.mimeType as any)) {
+        // Check if this media type is supported for this platform (only if mimeType is provided)
+        if (mediaItem.mimeType && !constraints.supportedMediaTypes.includes(mediaItem.mimeType as any)) {
           errors.push({
             platform,
             field: "media",
@@ -381,7 +381,7 @@ async function createPost(postData: any): Promise<string> {
       status: postData.isDraft ? "draft" : postData.schedule ? "scheduled" : "pending",
       scheduledFor: postData.schedule?.scheduledAt || null,
       platforms: postData.platforms,
-      mediaIds: postData.media?.map((m: any) => m.filename) || [],
+      mediaIds: postData.media?.map((m: any) => m.id || m.filename).filter(Boolean) || [],
       createdAt: new Date(),
       updatedAt: new Date()
     });
@@ -500,18 +500,41 @@ async function publishPost(postId: string, platforms: string[]): Promise<Publish
       link: post.link
     };
 
-    // Format media for publishing (in real app would get from storage)
-    const media = post.mediaIds?.map((id: string) => {
-      const isVideo = id.includes('.mp4') || id.includes('.mov') ||
-        id.includes('.avi') || id.includes('.wmv');
-      return {
-        id,
-        url: `https://storage.example.com/media/${id}`,
-        type: isVideo ? 'video' : 'image',
-        mimeType: isVideo ?
-          (id.includes('.mp4') ? 'video/mp4' : 'video/quicktime') :
-          (id.includes('.png') ? 'image/png' : 'image/jpeg')
-      };
+    // Format media for publishing - fetch real media URLs from database
+    let media: Array<{
+      id: string;
+      url: string;
+      type: 'image' | 'video';
+      mimeType: string;
+    }> = [];
+
+    if (post.mediaIds && post.mediaIds.length > 0) {
+      // Import MediaFileUtils dynamically to avoid circular dependencies
+      const { MediaFileUtils } = await import('@/utils/media-file-utils');
+
+      for (const mediaId of post.mediaIds) {
+        try {
+          const mediaFile = await MediaFileUtils.findById(mediaId);
+          if (mediaFile) {
+            media.push({
+              id: mediaFile.id,
+              url: mediaFile.url,
+              type: mediaFile.isVideo ? 'video' : 'image',
+              mimeType: mediaFile.fileType
+            });
+          } else {
+            console.warn(`Media file not found for ID: ${mediaId}`);
+          }
+        } catch (error) {
+          console.error(`Error fetching media file ${mediaId}:`, error);
+        }
+      }
+    }
+
+    console.log('Media resolved for posting:', {
+      mediaIds: post.mediaIds,
+      resolvedMediaCount: media.length,
+      mediaUrls: media.map(m => ({ id: m.id, url: m.url, type: m.type }))
     });
 
     // Publish to each platform
@@ -607,14 +630,47 @@ async function publishPost(postId: string, platforms: string[]): Promise<Publish
 async function getUserPosts(userId: string, filters: any): Promise<PostResponse[]> {
   const { status, platform, limit = 20, offset = 0 } = filters;
 
+  // Import MediaFileUtils dynamically to avoid circular dependencies
+  const { MediaFileUtils } = await import('@/utils/media-file-utils');
+
   // Get posts from memory storage (in production, this would be a database query)
-  return Array.from(memoryPosts.values())
+  const posts = Array.from(memoryPosts.values())
     .filter(post => post.userId === userId)
     .filter(post => !status || post.status === status)
     .filter(post => !platform || post.platforms.includes(platform))
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-    .slice(offset, offset + limit)
-    .map(post => ({
+    .slice(offset, offset + limit);
+
+  // Process each post to get real media URLs
+  const postsWithRealMedia = await Promise.all(posts.map(async (post) => {
+    let media: Array<{
+      id: string;
+      url: string;
+      filename: string;
+      type: 'image' | 'video';
+      size: number;
+    }> = [];
+
+    if (post.mediaIds && post.mediaIds.length > 0) {
+      for (const mediaId of post.mediaIds) {
+        try {
+          const mediaFile = await MediaFileUtils.findById(mediaId);
+          if (mediaFile) {
+            media.push({
+              id: mediaFile.id,
+              url: mediaFile.url,
+              filename: mediaFile.filename,
+              type: mediaFile.isVideo ? 'video' : 'image',
+              size: mediaFile.fileSize
+            });
+          }
+        } catch (error) {
+          console.error(`Error fetching media file ${mediaId}:`, error);
+        }
+      }
+    }
+
+    return {
       id: post.id,
       status: post.status,
       platforms: post.platforms.map((p: string) => ({
@@ -630,16 +686,13 @@ async function getUserPosts(userId: string, filters: any): Promise<PostResponse[
         mentions: post.mentions,
         link: post.link
       },
-      media: post.mediaIds?.map((id: string) => ({
-        id,
-        url: `https://storage.example.com/media/${id}`,
-        filename: id,
-        type: id.includes('.mp4') || id.includes('.mov') ? 'video' : 'image',
-        size: 0
-      })),
+      media,
       scheduledAt: post.scheduledFor?.toISOString(),
       publishedAt: post.publishedAt?.toISOString(),
       createdAt: post.createdAt.toISOString(),
       updatedAt: post.updatedAt.toISOString()
-    }));
+    };
+  }));
+
+  return postsWithRealMedia;
 }

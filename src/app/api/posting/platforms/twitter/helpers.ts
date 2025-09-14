@@ -2,6 +2,13 @@
 import { NextRequest } from "next/server";
 import { ServerSessionService } from "@/services/session-server";
 import { prisma } from "@/config/database/prisma";
+import {
+    TwitterOAuth1Credentials,
+    validateOAuth1Credentials,
+    twitterV1MediaRequest
+} from "@/utils/twitter-oauth";
+import { env } from "@/validations/env";
+import { canPostToTwitter } from "@/utils/twitter-config";
 
 export interface TwitterConnection {
     accessToken: string;
@@ -77,6 +84,18 @@ export async function postToTwitter(params: {
     const { content, media, accessToken, accessTokenSecret } = params;
 
     try {
+        // Check if we can post to Twitter with the current configuration
+        const hasMedia = media && media.length > 0;
+        const postingCapability = canPostToTwitter(hasMedia);
+
+        if (!postingCapability.canPost) {
+            return {
+                status: "failed",
+                error: postingCapability.reason || "Twitter posting is not available with current configuration",
+                success: false
+            };
+        }
+
         // Format content for Twitter API v2
         const tweetContent = formatTweetContent(content);
 
@@ -93,35 +112,66 @@ export async function postToTwitter(params: {
         if (media && media.length > 0) {
             console.log(`Attempting to upload ${media.length} media files to Twitter`);
 
-            // Upload media and get media IDs from Twitter
-            const mediaIds = await uploadMediaToTwitter(media, {
-                accessToken,
-                accessTokenSecret
-            });
-
-            // Check if media upload was successful
-            if (!mediaIds || mediaIds.length === 0) {
+            // For OAuth 1.0a media upload, we need proper access token and secret
+            // Since we don't have user-specific OAuth 1.0a tokens, we'll use app-level credentials
+            if (!env.TWITTER_API_KEY || !env.TWITTER_API_SECRET) {
                 return {
                     status: "failed",
-                    error: "Failed to upload media to Twitter. Please check your media files and try again.",
+                    error: "Twitter media upload requires OAuth 1.0a app credentials. Please configure TWITTER_API_KEY and TWITTER_API_SECRET environment variables.",
                     success: false
                 };
             }
 
-            if (mediaIds.length !== media.length) {
-                console.warn(`Only ${mediaIds.length} out of ${media.length} media files were uploaded successfully`);
-            }
+            // For now, we'll try to use the OAuth 2.0 access token with OAuth 1.0a credentials
+            // This is a hybrid approach that might work for some endpoints
+            const oauth1Credentials: TwitterOAuth1Credentials = {
+                consumerKey: env.TWITTER_API_KEY,
+                consumerSecret: env.TWITTER_API_SECRET,
+                accessToken: accessToken, // User's OAuth 2.0 access token
+                accessTokenSecret: accessTokenSecret || '' // Will be empty for OAuth 2.0 users
+            };
 
-            // Add media IDs to the request
-            if (mediaIds.length > 0) {
-                requestData.media = {
-                    media_ids: mediaIds
+            console.log('Using OAuth 1.0a credentials for media upload:', {
+                hasConsumerKey: !!oauth1Credentials.consumerKey,
+                hasConsumerSecret: !!oauth1Credentials.consumerSecret,
+                hasAccessToken: !!oauth1Credentials.accessToken,
+                hasAccessTokenSecret: !!oauth1Credentials.accessTokenSecret
+            });
+
+            try {
+                // Upload media and get media IDs from Twitter
+                const mediaIds = await uploadMediaToTwitter(media, oauth1Credentials);
+
+                // Check if media upload was successful
+                if (!mediaIds || mediaIds.length === 0) {
+                    console.error('No media IDs returned from upload');
+                    return {
+                        status: "failed",
+                        error: "Failed to upload media to Twitter. Please check your media files and try again.",
+                        success: false
+                    };
+                }
+
+                if (mediaIds.length !== media.length) {
+                    console.warn(`Only ${mediaIds.length} out of ${media.length} media files were uploaded successfully`);
+                }
+
+                // Add media IDs to the request
+                if (mediaIds.length > 0) {
+                    requestData.media = {
+                        media_ids: mediaIds
+                    };
+                    console.log(`Added ${mediaIds.length} media IDs to tweet request:`, mediaIds);
+                }
+            } catch (error) {
+                console.error('Error uploading media to Twitter:', error);
+                return {
+                    status: "failed",
+                    error: `Failed to upload media to Twitter: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                    success: false
                 };
-                console.log(`Added ${mediaIds.length} media IDs to tweet request`);
             }
-        }
-
-        // Make POST request to Twitter API v2
+        }        // Make POST request to Twitter API v2
         console.log('Sending tweet to Twitter API v2:', {
             text: requestData.text,
             hasMedia: !!requestData.media,
@@ -245,7 +295,7 @@ export async function uploadMediaToTwitter(media: Array<{
     type: 'image' | 'video';
     mimeType?: string;
     alt?: string;
-}>, credentials: { accessToken: string, accessTokenSecret: string }) {
+}>, credentials: TwitterOAuth1Credentials) {
     const mediaIds = [];
 
     try {
@@ -301,21 +351,19 @@ export async function uploadMediaToTwitter(media: Array<{
 async function uploadImageToTwitterSimple(
     mediaBytes: Uint8Array,
     mimeType: string,
-    credentials: { accessToken: string, accessTokenSecret: string }
+    credentials: TwitterOAuth1Credentials
 ): Promise<string | null> {
     try {
         const formData = new FormData();
         const blob = new Blob([Buffer.from(mediaBytes)], { type: mimeType });
         formData.append('media', blob);
 
-        // Use simple upload endpoint for images
-        const response = await fetch('https://upload.twitter.com/1.1/media/upload.json', {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${credentials.accessToken}`,
-            },
-            body: formData
-        });
+        // Use OAuth 1.0a authenticated request for v1.1 media upload
+        const response = await twitterV1MediaRequest(
+            'https://upload.twitter.com/1.1/media/upload.json',
+            credentials,
+            formData
+        );
 
         if (!response.ok) {
             const errorText = await response.text();
@@ -338,10 +386,9 @@ async function uploadImageToTwitterSimple(
 async function uploadVideoToTwitterChunked(
     mediaBytes: Uint8Array,
     mimeType: string,
-    credentials: { accessToken: string, accessTokenSecret: string }
+    credentials: TwitterOAuth1Credentials
 ): Promise<string | null> {
     const uploadEndpoint = "https://upload.twitter.com/1.1/media/upload.json";
-    const { accessToken } = credentials;
 
     try {
         // Step 1: INIT the upload
@@ -352,12 +399,10 @@ async function uploadVideoToTwitterChunked(
             media_category: 'tweet_video'
         });
 
-        const initResponse = await fetch(`${uploadEndpoint}?${initParams}`, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${accessToken}`,
-            }
-        });
+        const initResponse = await twitterV1MediaRequest(
+            `${uploadEndpoint}?${initParams}`,
+            credentials
+        );
 
         if (!initResponse.ok) {
             const errorText = await initResponse.text();
@@ -383,13 +428,7 @@ async function uploadVideoToTwitterChunked(
             const chunkBlob = new Blob([Buffer.from(chunk)], { type: mimeType });
             formData.append('media', chunkBlob);
 
-            const appendResponse = await fetch(uploadEndpoint, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                },
-                body: formData
-            });
+            const appendResponse = await twitterV1MediaRequest(uploadEndpoint, credentials, formData);
 
             if (!appendResponse.ok) {
                 const errorText = await appendResponse.text();
@@ -408,12 +447,10 @@ async function uploadVideoToTwitterChunked(
             media_id: mediaId
         });
 
-        const finalizeResponse = await fetch(`${uploadEndpoint}?${finalizeParams}`, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${accessToken}`,
-            }
-        });
+        const finalizeResponse = await twitterV1MediaRequest(
+            `${uploadEndpoint}?${finalizeParams}`,
+            credentials
+        );
 
         if (!finalizeResponse.ok) {
             const errorText = await finalizeResponse.text();
@@ -442,7 +479,7 @@ async function uploadVideoToTwitterChunked(
  */
 async function waitForVideoProcessing(
     mediaId: string,
-    credentials: { accessToken: string, accessTokenSecret: string },
+    credentials: TwitterOAuth1Credentials,
     maxAttempts: number = 10
 ): Promise<string | null> {
     const { accessToken } = credentials;
@@ -454,12 +491,10 @@ async function waitForVideoProcessing(
                 media_id: mediaId
             });
 
-            const statusResponse = await fetch(`https://upload.twitter.com/1.1/media/upload.json?${statusParams}`, {
-                method: 'GET',
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                }
-            });
+            const statusResponse = await twitterV1MediaRequest(
+                `https://upload.twitter.com/1.1/media/upload.json?${statusParams}`,
+                credentials
+            );
 
             if (!statusResponse.ok) {
                 console.error('Failed to check video processing status');
@@ -504,20 +539,17 @@ async function waitForVideoProcessing(
 async function addAltTextToMedia(
     mediaId: string,
     altText: string,
-    credentials: { accessToken: string, accessTokenSecret: string }
+    credentials: TwitterOAuth1Credentials
 ): Promise<void> {
     try {
-        const response = await fetch('https://api.twitter.com/1.1/media/metadata/create.json', {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${credentials.accessToken}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
+        const response = await twitterV1MediaRequest(
+            'https://api.twitter.com/1.1/media/metadata/create.json',
+            credentials,
+            new URLSearchParams({
                 media_id: mediaId,
-                alt_text: { text: altText }
+                alt_text: JSON.stringify({ text: altText })
             })
-        });
+        );
 
         if (!response.ok) {
             console.error('Failed to add alt text to media');

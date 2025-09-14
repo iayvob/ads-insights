@@ -16,9 +16,13 @@ const envSchema = z.object({
   FACEBOOK_APP_SECRET: z.string().min(1),
   FACEBOOK_BUSINESS_CONFIG_ID: z.string().optional(),
 
-  // Twitter
+  // Twitter (OAuth 2.0 for API v2)
   TWITTER_CLIENT_ID: z.string().min(1),
   TWITTER_CLIENT_SECRET: z.string().min(1),
+
+  // Twitter OAuth 1.0a (for v1.1 media upload)
+  TWITTER_API_KEY: z.string().min(1),
+  TWITTER_API_SECRET: z.string().min(1),
 
   // Instagram (Instagram Business API uses Facebook credentials)
   INSTAGRAM_APP_ID: z.string().min(1),

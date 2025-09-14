@@ -114,7 +114,11 @@ export function MediaUploader({
             // Add to media files
             const newMediaFiles = newFiles.map(createMediaFile);
             setMediaFiles((prev) => [...prev, ...newMediaFiles]);
-            onFilesChange([...files, ...newFiles]);
+
+            // Call onFilesChange outside of state update using setTimeout
+            setTimeout(() => {
+              onFilesChange([...files, ...newFiles]);
+            }, 0);
 
             return 100;
           }
@@ -149,7 +153,11 @@ export function MediaUploader({
     if (mediaFile) {
       URL.revokeObjectURL(mediaFile.preview);
       setMediaFiles((prev) => prev.filter((mf) => mf.id !== fileId));
-      onFilesChange(files.filter((f) => f !== mediaFile.file));
+
+      // Call onFilesChange outside of render using setTimeout
+      setTimeout(() => {
+        onFilesChange(files.filter((f) => f !== mediaFile.file));
+      }, 0);
     }
   };
 

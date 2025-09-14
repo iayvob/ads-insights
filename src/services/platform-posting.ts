@@ -11,6 +11,7 @@ export interface PlatformConnection {
   userId?: string
   pageId?: string // For Facebook/Instagram pages
   accountName?: string
+  accessTokenSecret?: string // For Twitter OAuth 1.0a (if needed)
 }
 
 export class PlatformPostingService {
@@ -333,46 +334,61 @@ export class PlatformPostingService {
 
   /**
    * Post to Twitter using connection data
-   * Delegates to the Twitter API route handler for proper media handling
+   * Uses the Twitter helper functions directly
    */
   private static async postToTwitter(
     connection: PlatformConnection,
     content: any
   ) {
     try {
-      // Format content for Twitter API route
-      const postData = {
-        content: content.text || '',
-        media: content.media || []
-      }
+      // Use the Twitter helper function directly
+      const result = await this.callTwitterHelper(connection, content)
 
-      // Call the Twitter API route which handles media upload properly
-      const response = await fetch('/api/posting/platforms/twitter', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(postData)
-      })
-
-      const result = await response.json()
-
-      if (result.success && result.data) {
+      if (result.success) {
         return {
           success: true,
-          platformPostId: result.data.id,
-          url: result.data.url
+          platformPostId: (result as any).platformPostId,
+          url: (result as any).url
         }
       } else {
         return {
           success: false,
-          error: result.message || result.error || 'Twitter posting failed'
+          error: (result as any).error || 'Twitter posting failed'
         }
       }
     } catch (error) {
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Twitter posting failed'
+      }
+    }
+  }
+
+  /**
+   * Helper method to call Twitter posting functionality
+   */
+  private static async callTwitterHelper(
+    connection: PlatformConnection,
+    content: any
+  ) {
+    try {
+      // Import the postToTwitter function dynamically to avoid circular dependencies
+      const { postToTwitter } = await import('@/app/api/posting/platforms/twitter/helpers')
+
+      const result = await postToTwitter({
+        content: content.text || '',
+        media: content.media || [],
+        accessToken: connection.accessToken,
+        accessTokenSecret: connection.accessTokenSecret || '',
+        userId: connection.userId || ''
+      })
+
+      return result
+    } catch (error) {
+      console.error('Error calling Twitter helper:', error)
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Twitter helper error'
       }
     }
   }
