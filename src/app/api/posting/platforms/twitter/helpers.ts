@@ -32,7 +32,7 @@ export async function getTwitterConnection(request: NextRequest): Promise<Twitte
 
         return {
             accessToken: twitterData.account_tokens.access_token,
-            accessTokenSecret: twitterData.account_tokens.refresh_token || '', // Twitter often uses refresh_token as secret
+            accessTokenSecret: '', // OAuth 2.0 doesn't use access token secrets
             userId: userId,
             username: twitterData.account.username,
             connected: true,
@@ -91,21 +91,43 @@ export async function postToTwitter(params: {
 
         // Handle media if present
         if (media && media.length > 0) {
+            console.log(`Attempting to upload ${media.length} media files to Twitter`);
+
             // Upload media and get media IDs from Twitter
             const mediaIds = await uploadMediaToTwitter(media, {
                 accessToken,
                 accessTokenSecret
             });
 
+            // Check if media upload was successful
+            if (!mediaIds || mediaIds.length === 0) {
+                return {
+                    status: "failed",
+                    error: "Failed to upload media to Twitter. Please check your media files and try again.",
+                    success: false
+                };
+            }
+
+            if (mediaIds.length !== media.length) {
+                console.warn(`Only ${mediaIds.length} out of ${media.length} media files were uploaded successfully`);
+            }
+
             // Add media IDs to the request
-            if (mediaIds && mediaIds.length > 0) {
+            if (mediaIds.length > 0) {
                 requestData.media = {
                     media_ids: mediaIds
                 };
+                console.log(`Added ${mediaIds.length} media IDs to tweet request`);
             }
         }
 
         // Make POST request to Twitter API v2
+        console.log('Sending tweet to Twitter API v2:', {
+            text: requestData.text,
+            hasMedia: !!requestData.media,
+            mediaCount: requestData.media?.media_ids?.length || 0
+        });
+
         const response = await fetch(endpoint, {
             method: 'POST',
             headers: {
@@ -116,10 +138,18 @@ export async function postToTwitter(params: {
         });
 
         const result = await response.json();
+        console.log('Twitter API response:', {
+            ok: response.ok,
+            status: response.status,
+            hasData: !!result.data,
+            errors: result.errors
+        });
 
         if (response.ok && result.data && result.data.id) {
             const tweetId = result.data.id;
             const username = await getUsernameFromToken(accessToken);
+
+            console.log(`Tweet posted successfully: ${tweetId}`);
 
             return {
                 platformPostId: tweetId,
@@ -131,9 +161,21 @@ export async function postToTwitter(params: {
             };
         } else {
             // Handle Twitter API error
-            const errorMessage = result.errors && result.errors.length > 0
-                ? result.errors[0].message
-                : "Unknown Twitter API error";
+            let errorMessage = "Unknown Twitter API error";
+
+            if (result.errors && result.errors.length > 0) {
+                errorMessage = result.errors.map((err: any) => err.message || err.detail).join(', ');
+            } else if (result.error) {
+                errorMessage = result.error;
+            } else if (!response.ok) {
+                errorMessage = `Twitter API returned status ${response.status}`;
+            }
+
+            console.error('Twitter API error:', {
+                status: response.status,
+                errors: result.errors,
+                error: result.error
+            });
 
             return {
                 status: "failed",
@@ -195,6 +237,7 @@ export async function getUsernameFromToken(accessToken: string): Promise<string>
 
 /**
  * Upload media to Twitter before tweeting
+ * Uses proper OAuth 1.0a authentication for v1.1 media upload endpoint
  */
 export async function uploadMediaToTwitter(media: Array<{
     id: string;
@@ -203,88 +246,286 @@ export async function uploadMediaToTwitter(media: Array<{
     mimeType?: string;
     alt?: string;
 }>, credentials: { accessToken: string, accessTokenSecret: string }) {
-    // Twitter API v1.1 endpoint for media uploads
-    const uploadEndpoint = "https://upload.twitter.com/1.1/media/upload.json";
-    const { accessToken } = credentials;
-
     const mediaIds = [];
 
     try {
         for (const mediaItem of media) {
+            console.log(`Uploading media to Twitter: ${mediaItem.id} (${mediaItem.type})`);
+
             // Step 1: Fetch the media content
             const mediaResponse = await fetch(mediaItem.url);
+            if (!mediaResponse.ok) {
+                console.error(`Failed to fetch media from URL: ${mediaItem.url}`);
+                continue;
+            }
+
             const mediaBuffer = await mediaResponse.arrayBuffer();
+            const mediaBytes = new Uint8Array(mediaBuffer);
 
-            // Step 2: INIT the upload
-            const initResponse = await fetch(`${uploadEndpoint}?command=INIT&total_bytes=${mediaBuffer.byteLength}&media_type=${mediaItem.mimeType}`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                    'Content-Type': 'application/json'
+            console.log(`Media fetched: ${mediaBytes.length} bytes, type: ${mediaItem.mimeType}`);
+
+            // Use simple upload for images (works better than chunked for most cases)
+            if (mediaItem.type === 'image') {
+                const mediaId = await uploadImageToTwitterSimple(mediaBytes, mediaItem.mimeType!, credentials);
+                if (mediaId) {
+                    // Add alt text if provided
+                    if (mediaItem.alt) {
+                        await addAltTextToMedia(mediaId, mediaItem.alt, credentials);
+                    }
+                    mediaIds.push(mediaId);
                 }
-            });
-
-            const initData = await initResponse.json();
-
-            if (!initResponse.ok || !initData.media_id_string) {
-                throw new Error('Failed to initialize media upload');
-            }
-
-            const mediaId = initData.media_id_string;
-
-            // Step 3: APPEND the media data
-            // In a real implementation, large media would be split into chunks
-            // For simplicity, we'll assume smaller media files
-            const appendResponse = await fetch(`${uploadEndpoint}?command=APPEND&media_id=${mediaId}&segment_index=0`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                    'Content-Type': 'multipart/form-data'
-                },
-                body: mediaBuffer
-            });
-
-            if (!appendResponse.ok) {
-                throw new Error('Failed to append media data');
-            }
-
-            // Step 4: FINALIZE the upload
-            const finalizeResponse = await fetch(`${uploadEndpoint}?command=FINALIZE&media_id=${mediaId}`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                    'Content-Type': 'application/json'
+            } else if (mediaItem.type === 'video') {
+                // Use chunked upload for videos
+                const mediaId = await uploadVideoToTwitterChunked(mediaBytes, mediaItem.mimeType!, credentials);
+                if (mediaId) {
+                    // Add alt text if provided
+                    if (mediaItem.alt) {
+                        await addAltTextToMedia(mediaId, mediaItem.alt, credentials);
+                    }
+                    mediaIds.push(mediaId);
                 }
-            });
-
-            const finalizeData = await finalizeResponse.json();
-
-            if (!finalizeResponse.ok || !finalizeData.media_id_string) {
-                throw new Error('Failed to finalize media upload');
             }
-
-            // Step 5: Add alt text if provided (accessibility)
-            if (mediaItem.alt) {
-                await fetch(`https://api.twitter.com/1.1/media/metadata/create.json`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        media_id: mediaId,
-                        alt_text: { text: mediaItem.alt }
-                    })
-                });
-            }
-
-            mediaIds.push(mediaId);
         }
 
+        console.log(`Successfully uploaded ${mediaIds.length} media files to Twitter`);
         return mediaIds;
     } catch (error) {
         console.error('Error uploading media to Twitter:', error);
         return [];
+    }
+}
+
+/**
+ * Simple upload for images using Twitter API v1.1
+ */
+async function uploadImageToTwitterSimple(
+    mediaBytes: Uint8Array,
+    mimeType: string,
+    credentials: { accessToken: string, accessTokenSecret: string }
+): Promise<string | null> {
+    try {
+        const formData = new FormData();
+        const blob = new Blob([Buffer.from(mediaBytes)], { type: mimeType });
+        formData.append('media', blob);
+
+        // Use simple upload endpoint for images
+        const response = await fetch('https://upload.twitter.com/1.1/media/upload.json', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${credentials.accessToken}`,
+            },
+            body: formData
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('Twitter image upload failed:', response.status, errorText);
+            return null;
+        }
+
+        const result = await response.json();
+        console.log('Twitter image upload success:', result.media_id_string);
+        return result.media_id_string;
+    } catch (error) {
+        console.error('Error in simple image upload:', error);
+        return null;
+    }
+}
+
+/**
+ * Chunked upload for videos using Twitter API v1.1
+ */
+async function uploadVideoToTwitterChunked(
+    mediaBytes: Uint8Array,
+    mimeType: string,
+    credentials: { accessToken: string, accessTokenSecret: string }
+): Promise<string | null> {
+    const uploadEndpoint = "https://upload.twitter.com/1.1/media/upload.json";
+    const { accessToken } = credentials;
+
+    try {
+        // Step 1: INIT the upload
+        const initParams = new URLSearchParams({
+            command: 'INIT',
+            total_bytes: mediaBytes.length.toString(),
+            media_type: mimeType,
+            media_category: 'tweet_video'
+        });
+
+        const initResponse = await fetch(`${uploadEndpoint}?${initParams}`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+            }
+        });
+
+        if (!initResponse.ok) {
+            const errorText = await initResponse.text();
+            console.error('Twitter video INIT failed:', initResponse.status, errorText);
+            return null;
+        }
+
+        const initData = await initResponse.json();
+        const mediaId = initData.media_id_string;
+        console.log('Twitter video INIT success:', mediaId);
+
+        // Step 2: APPEND the media data in chunks
+        const chunkSize = 5 * 1024 * 1024; // 5MB chunks
+        let segmentIndex = 0;
+
+        for (let i = 0; i < mediaBytes.length; i += chunkSize) {
+            const chunk = mediaBytes.slice(i, Math.min(i + chunkSize, mediaBytes.length));
+
+            const formData = new FormData();
+            formData.append('command', 'APPEND');
+            formData.append('media_id', mediaId);
+            formData.append('segment_index', segmentIndex.toString());
+            const chunkBlob = new Blob([Buffer.from(chunk)], { type: mimeType });
+            formData.append('media', chunkBlob);
+
+            const appendResponse = await fetch(uploadEndpoint, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                },
+                body: formData
+            });
+
+            if (!appendResponse.ok) {
+                const errorText = await appendResponse.text();
+                console.error(`Twitter video APPEND failed for segment ${segmentIndex}:`, appendResponse.status, errorText);
+                return null;
+            }
+
+            segmentIndex++;
+        }
+
+        console.log(`Twitter video APPEND completed: ${segmentIndex} segments`);
+
+        // Step 3: FINALIZE the upload
+        const finalizeParams = new URLSearchParams({
+            command: 'FINALIZE',
+            media_id: mediaId
+        });
+
+        const finalizeResponse = await fetch(`${uploadEndpoint}?${finalizeParams}`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+            }
+        });
+
+        if (!finalizeResponse.ok) {
+            const errorText = await finalizeResponse.text();
+            console.error('Twitter video FINALIZE failed:', finalizeResponse.status, errorText);
+            return null;
+        }
+
+        const finalizeData = await finalizeResponse.json();
+        console.log('Twitter video FINALIZE success:', finalizeData.media_id_string);
+
+        // Step 4: Check processing status for videos
+        if (finalizeData.processing_info) {
+            const processedMediaId = await waitForVideoProcessing(mediaId, credentials);
+            return processedMediaId;
+        }
+
+        return finalizeData.media_id_string;
+    } catch (error) {
+        console.error('Error in chunked video upload:', error);
+        return null;
+    }
+}
+
+/**
+ * Wait for video processing to complete
+ */
+async function waitForVideoProcessing(
+    mediaId: string,
+    credentials: { accessToken: string, accessTokenSecret: string },
+    maxAttempts: number = 10
+): Promise<string | null> {
+    const { accessToken } = credentials;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        try {
+            const statusParams = new URLSearchParams({
+                command: 'STATUS',
+                media_id: mediaId
+            });
+
+            const statusResponse = await fetch(`https://upload.twitter.com/1.1/media/upload.json?${statusParams}`, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                }
+            });
+
+            if (!statusResponse.ok) {
+                console.error('Failed to check video processing status');
+                return null;
+            }
+
+            const statusData = await statusResponse.json();
+
+            if (statusData.processing_info) {
+                const state = statusData.processing_info.state;
+
+                if (state === 'succeeded') {
+                    console.log('Video processing completed successfully');
+                    return mediaId;
+                } else if (state === 'failed') {
+                    console.error('Video processing failed');
+                    return null;
+                } else if (state === 'in_progress') {
+                    // Wait before checking again
+                    const checkAfter = statusData.processing_info.check_after_secs || 5;
+                    console.log(`Video processing in progress, checking again in ${checkAfter} seconds`);
+                    await new Promise(resolve => setTimeout(resolve, checkAfter * 1000));
+                    continue;
+                }
+            } else {
+                // No processing info means it's ready
+                return mediaId;
+            }
+        } catch (error) {
+            console.error('Error checking video processing status:', error);
+            return null;
+        }
+    }
+
+    console.error('Video processing timed out');
+    return null;
+}
+
+/**
+ * Add alt text to uploaded media
+ */
+async function addAltTextToMedia(
+    mediaId: string,
+    altText: string,
+    credentials: { accessToken: string, accessTokenSecret: string }
+): Promise<void> {
+    try {
+        const response = await fetch('https://api.twitter.com/1.1/media/metadata/create.json', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${credentials.accessToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                media_id: mediaId,
+                alt_text: { text: altText }
+            })
+        });
+
+        if (!response.ok) {
+            console.error('Failed to add alt text to media');
+        } else {
+            console.log('Alt text added successfully');
+        }
+    } catch (error) {
+        console.error('Error adding alt text:', error);
     }
 }
 

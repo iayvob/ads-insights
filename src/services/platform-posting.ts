@@ -333,49 +333,46 @@ export class PlatformPostingService {
 
   /**
    * Post to Twitter using connection data
+   * Delegates to the Twitter API route handler for proper media handling
    */
   private static async postToTwitter(
     connection: PlatformConnection,
     content: any
   ) {
-    const { accessToken } = connection
-
-    // Twitter API v2 posting logic
-    const tweetData: any = {
-      text: content.text || ''
-    }
-
-    if (content.media && content.media.length > 0) {
-      // Handle media attachments
-      tweetData.media = {
-        media_ids: content.media.map((media: any) => media.id)
+    try {
+      // Format content for Twitter API route
+      const postData = {
+        content: content.text || '',
+        media: content.media || []
       }
-    }
 
-    const response = await fetch(
-      'https://api.twitter.com/2/tweets',
-      {
+      // Call the Twitter API route which handles media upload properly
+      const response = await fetch('/api/posting/platforms/twitter', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${accessToken}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(tweetData)
-      }
-    )
+        body: JSON.stringify(postData)
+      })
 
-    const result = await response.json()
+      const result = await response.json()
 
-    if (result.data?.id) {
-      return {
-        success: true,
-        platformPostId: result.data.id,
-        url: `https://twitter.com/${connection.username}/status/${result.data.id}`
+      if (result.success && result.data) {
+        return {
+          success: true,
+          platformPostId: result.data.id,
+          url: result.data.url
+        }
+      } else {
+        return {
+          success: false,
+          error: result.message || result.error || 'Twitter posting failed'
+        }
       }
-    } else {
+    } catch (error) {
       return {
         success: false,
-        error: result.errors?.[0]?.detail || 'Twitter posting failed'
+        error: error instanceof Error ? error.message : 'Twitter posting failed'
       }
     }
   }
