@@ -40,7 +40,7 @@ export interface FacebookEnhancedData extends FacebookAnalytics {
 }
 
 export class FacebookApiClient extends BaseApiClient {
-  private static readonly BASE_URL = "https://graph.facebook.com/v23.0" // Updated to latest stable version
+  private static readonly BASE_URL = "https://graph.facebook.com/v23.0" // Latest stable version
   private static readonly INSIGHTS_METRICS = [
     'page_impressions',
     'page_reach',
@@ -48,6 +48,155 @@ export class FacebookApiClient extends BaseApiClient {
     'page_views',
     'page_post_engagements'
   ].join(',')
+
+  // Comprehensive Facebook Ads Insights fields based on Meta Marketing API v23.0
+  private static readonly ADS_INSIGHTS_FIELDS = [
+    // Basic Performance Metrics
+    'impressions',
+    'reach',
+    'frequency',
+    'spend',
+    'clicks',
+    'unique_clicks',
+    'ctr',
+    'cpc',
+    'cpm',
+    'cpp',
+
+    // Conversion & Action Metrics
+    'actions',
+    'action_values',
+    'conversions',
+    'conversion_values',
+    'cost_per_action_type',
+    'cost_per_conversion',
+    'website_ctr',
+    'website_clicks',
+
+    // Video Metrics
+    'video_play_actions',
+    'video_play_curve_actions',
+    'video_p25_watched_actions',
+    'video_p50_watched_actions',
+    'video_p75_watched_actions',
+    'video_p95_watched_actions',
+    'video_p100_watched_actions',
+    'video_avg_time_watched_actions',
+    'video_thruplay_watched_actions',
+
+    // Advanced Performance
+    'quality_ranking',
+    'engagement_rate_ranking',
+    'conversion_rate_ranking',
+    'estimated_ad_recall_rate',
+    'estimated_ad_recallers',
+
+    // Attribution Windows (following latest unified attribution settings)
+    'mobile_app_purchase_roas',
+    'website_purchase_roas',
+    'purchase_roas',
+
+    // Device & Platform
+    'canvas_avg_view_time',
+    'canvas_avg_view_percent',
+    'instant_experience_clicks_to_open',
+    'instant_experience_clicks_to_start',
+    'instant_experience_outbound_clicks'
+  ].join(',')
+
+  // Comprehensive Facebook Posts Insights fields based on Meta Graph API v23.0
+  private static readonly POSTS_INSIGHTS_FIELDS = [
+    // Basic Post Performance Metrics
+    'post_impressions',
+    'post_impressions_unique',
+    'post_impressions_paid',
+    'post_impressions_paid_unique',
+    'post_impressions_fan',
+    'post_impressions_fan_unique',
+    'post_impressions_organic',
+    'post_impressions_organic_unique',
+    'post_impressions_viral',
+    'post_impressions_viral_unique',
+    'post_impressions_nonviral',
+    'post_impressions_nonviral_unique',
+
+    // Post Engagement Metrics
+    'post_engaged_users',
+    'post_negative_feedback',
+    'post_negative_feedback_unique',
+    'post_engaged_fan',
+    'post_engaged_fan_unique',
+    'post_clicks',
+    'post_clicks_unique',
+
+    // Post Reactions & Social Actions
+    'post_reactions_like_total',
+    'post_reactions_love_total',
+    'post_reactions_wow_total',
+    'post_reactions_haha_total',
+    'post_reactions_sorry_total',
+    'post_reactions_anger_total',
+    'post_reactions_by_type_total',
+
+    // Post Activity & Stories
+    'post_activity',
+    'post_activity_unique',
+    'post_activity_by_action_type',
+    'post_activity_by_action_type_unique',
+
+    // Video Post Metrics (when applicable)
+    'post_video_views',
+    'post_video_views_unique',
+    'post_video_views_paid',
+    'post_video_views_paid_unique',
+    'post_video_views_organic',
+    'post_video_views_organic_unique',
+    'post_video_views_autoplayed',
+    'post_video_views_clicked_to_play',
+    'post_video_view_time',
+    'post_video_view_time_organic',
+    'post_video_view_time_by_age_bucket_and_gender',
+    'post_video_view_time_by_region_id',
+    'post_video_view_time_by_distribution_type',
+    'post_video_views_by_distribution_type',
+    'post_video_retention_graph',
+    'post_video_avg_time_watched',
+    'post_video_complete_views_30s',
+    'post_video_complete_views_30s_paid',
+    'post_video_complete_views_30s_organic',
+    'post_video_complete_views_30s_autoplayed',
+    'post_video_complete_views_30s_clicked_to_play',
+    'post_video_complete_views_30s_unique',
+    'post_video_views_15s',
+    'post_video_views_60s_excludes_shorter',
+    'post_video_views_sound_on',
+    'post_video_social_actions_count_unique'
+  ].join(',')
+
+  // Available breakdowns for detailed analytics
+  private static readonly AVAILABLE_BREAKDOWNS = [
+    'age',
+    'gender',
+    'country',
+    'region',
+    'dma',
+    'impression_device',
+    'publisher_platform',
+    'platform_position',
+    'device_platform',
+    'product_id',
+    'placement',
+    'ad_format_asset',
+    'body_asset',
+    'call_to_action_asset',
+    'description_asset',
+    'image_asset',
+    'link_url_asset',
+    'title_asset',
+    'video_asset',
+    'hourly_stats_aggregated_by_advertiser_time_zone',
+    'hourly_stats_aggregated_by_audience_time_zone'
+  ]
 
   /**
    * Fetch comprehensive Facebook analytics with subscription-aware data
@@ -62,7 +211,7 @@ export class FacebookApiClient extends BaseApiClient {
       ]);
 
       let adsAnalytics: AdsAnalytics | null = null;
-      
+
       // Only fetch ads analytics for premium users
       if (includeAds) {
         try {
@@ -80,7 +229,7 @@ export class FacebookApiClient extends BaseApiClient {
         lastUpdated: new Date().toISOString(),
       };
 
-      logger.info("Facebook analytics fetched successfully", { 
+      logger.info("Facebook analytics fetched successfully", {
         hasPageData: !!result.pageData,
         hasPostsData: !!result.posts,
         hasAdsData: !!result.ads,
@@ -120,12 +269,13 @@ export class FacebookApiClient extends BaseApiClient {
 
   /**
    * Get comprehensive posts analytics for Facebook pages
+   * Enhanced with Meta Graph API v23.0 comprehensive posts insights
    */
   static async getPostsAnalytics(accessToken: string): Promise<PostAnalytics> {
     try {
       // Get Facebook page information
       const pageInfo = await this.getFacebookPageInfo(accessToken);
-      
+
       if (!pageInfo) {
         logger.warn("No Facebook page found, returning mock data");
         return this.getMockPostsAnalytics();
@@ -133,89 +283,148 @@ export class FacebookApiClient extends BaseApiClient {
 
       const { pageId, pageAccessToken } = pageInfo;
 
-      // Get posts with detailed insights using Facebook page ID
-      const postsUrl = `${this.BASE_URL}/${pageId}/posts?access_token=${pageAccessToken}&fields=id,message,created_time,likes.summary(true),comments.summary(true),shares,insights.metric(post_impressions,post_reach,post_engaged_users)&limit=50`;
-      
-      const postsData = await this.makeRequest<any>(postsUrl, {}, "Failed to fetch Facebook posts analytics");
+      // Step 1: Get posts with basic data and engagement metrics
+      const postsUrl = `${this.BASE_URL}/${pageId}/posts?access_token=${pageAccessToken}&fields=id,message,story,created_time,type,status_type,likes.summary(true),comments.summary(true),shares,reactions.summary(true),attachments{media_type,type,subattachments,media,title,description}&limit=100`;
+
+      const postsData = await this.makeRequest<any>(postsUrl, {}, "Failed to fetch Facebook posts");
       const posts = postsData.data || [];
 
-      // Calculate aggregated metrics
-      let totalEngagement = 0;
-      let totalReach = 0;
-      let totalImpressions = 0;
-      let topPost = null;
-      let maxEngagement = 0;
+      if (!posts.length) {
+        logger.warn("No posts found for Facebook page");
+        return this.getMockPostsAnalytics();
+      }
 
-      const engagementTrend: Array<{ date: string; engagement: number; reach: number; impressions: number }> = [];
-      const contentPerformance = new Map<string, { count: number; totalEngagement: number }>();
+      // Step 2: Get comprehensive insights for each post
+      const postsWithInsights = await Promise.all(
+        posts.slice(0, 50).map(async (post: any) => {
+          try {
+            const insightsUrl = `${this.BASE_URL}/${post.id}/insights?access_token=${pageAccessToken}&metric=${this.POSTS_INSIGHTS_FIELDS}`;
+            const insightsData = await this.makeRequest<any>(insightsUrl, {}, `Failed to fetch insights for post ${post.id}`);
 
-      posts.forEach((post: any) => {
-        const likes = post.likes?.summary?.total_count || 0;
-        const comments = post.comments?.summary?.total_count || 0;
-        const shares = post.shares?.count || 0;
-        const engagement = likes + comments + shares;
+            return {
+              ...post,
+              insights: insightsData.data || []
+            };
+          } catch (error) {
+            logger.warn(`Failed to fetch insights for post ${post.id}`, { error });
+            return {
+              ...post,
+              insights: []
+            };
+          }
+        })
+      );
 
-        // Get insights data
-        let reach = 0;
-        let impressions = 0;
-        
-        if (post.insights?.data) {
-          post.insights.data.forEach((insight: any) => {
-            const value = insight.values?.[0]?.value || 0;
-            if (insight.name === 'post_reach') reach = value;
-            if (insight.name === 'post_impressions') impressions = value;
-          });
-        }
+      // Step 3: Process comprehensive post metrics
+      const processedPosts = this.processComprehensivePostsData(postsWithInsights);
 
-        totalEngagement += engagement;
-        totalReach += reach;
-        totalImpressions += impressions;
+      // Step 4: Calculate aggregated metrics
+      const totalPosts = processedPosts.length;
+      const totalEngagements = processedPosts.reduce((sum, post) => sum + post.totalEngagement, 0);
+      const totalReach = processedPosts.reduce((sum, post) => sum + post.reach, 0);
+      const totalImpressions = processedPosts.reduce((sum, post) => sum + post.impressions, 0);
+      const totalReactions = processedPosts.reduce((sum, post) => sum + post.totalReactions, 0);
 
-        // Track top post
-        if (engagement > maxEngagement) {
-          maxEngagement = engagement;
-          topPost = {
-            id: post.id,
-            content: post.message?.substring(0, 100) || 'No content',
-            engagement,
-            reach,
-            impressions,
-            date: post.created_time,
-            mediaType: this.determineMediaType(post) as 'image' | 'video' | 'carousel' | 'text',
-          };
-        }
+      // Step 5: Calculate reaction breakdown
+      const reactionBreakdown = processedPosts.reduce((acc, post) => ({
+        like: acc.like + post.reactions.like,
+        love: acc.love + post.reactions.love,
+        wow: acc.wow + post.reactions.wow,
+        haha: acc.haha + post.reactions.haha,
+        sad: acc.sad + post.reactions.sad,
+        angry: acc.angry + post.reactions.angry,
+      }), { like: 0, love: 0, wow: 0, haha: 0, sad: 0, angry: 0 });
 
-        // Track engagement trend (group by day)
-        const date = new Date(post.created_time).toISOString().split('T')[0];
-        engagementTrend.push({ date, engagement, reach, impressions });
+      // Step 6: Calculate organic/paid/viral reach breakdown
+      const organicReach = processedPosts.reduce((sum, post) => sum + post.organicReach, 0);
+      const paidReach = processedPosts.reduce((sum, post) => sum + post.paidReach, 0);
+      const viralReach = processedPosts.reduce((sum, post) => sum + post.viralReach, 0);
 
-        // Track content performance
-        const mediaType = this.determineMediaType(post);
-        const current = contentPerformance.get(mediaType) || { count: 0, totalEngagement: 0 };
-        contentPerformance.set(mediaType, {
-          count: current.count + 1,
-          totalEngagement: current.totalEngagement + engagement,
-        });
-      });
+      // Step 7: Calculate video metrics (if applicable)
+      const videoPosts = processedPosts.filter(post => post.mediaType === 'video');
+      const videoMetrics = videoPosts.length > 0 ? {
+        totalViews: videoPosts.reduce((sum, post) => sum + (post.videoViews || 0), 0),
+        avgViewTime: videoPosts.reduce((sum, post) => sum + (post.videoViewTime || 0), 0) / videoPosts.length,
+        viewCompletionRate: this.calculateVideoCompletionRate(videoPosts),
+        videoViewsUnique: videoPosts.reduce((sum, post) => sum + (post.videoViewsUnique || 0), 0),
+        videoViews3s: videoPosts.reduce((sum, post) => sum + (post.videoViews3s || 0), 0),
+        videoViews15s: videoPosts.reduce((sum, post) => sum + (post.videoViews15s || 0), 0),
+        videoViews30s: videoPosts.reduce((sum, post) => sum + (post.videoViews30s || 0), 0),
+        videoViews60s: videoPosts.reduce((sum, post) => sum + (post.videoViews60s || 0), 0),
+        soundOnViews: videoPosts.reduce((sum, post) => sum + (post.soundOnViews || 0), 0),
+        autoplayedViews: videoPosts.reduce((sum, post) => sum + (post.autoplayedViews || 0), 0),
+        clickToPlayViews: videoPosts.reduce((sum, post) => sum + (post.clickToPlayViews || 0), 0)
+      } : undefined;
 
-      // Sort engagement trend by date
-      engagementTrend.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      // Step 8: Find top performing post
+      const topPost = processedPosts.reduce((top, post) => {
+        const score = this.calculatePostPerformanceScore(post);
+        const topScore = top ? this.calculatePostPerformanceScore(top) : 0;
+        return score > topScore ? post : top;
+      }, null as any);
 
-      // Convert content performance to array
-      const contentPerformanceArray = Array.from(contentPerformance.entries()).map(([type, data]) => ({
-        type: type as 'image' | 'video' | 'carousel' | 'text',
-        count: data.count,
-        avgEngagement: data.count > 0 ? data.totalEngagement / data.count : 0,
-      }));
+      // Step 9: Generate engagement trend
+      const engagementTrend = this.generateEngagementTrend(processedPosts);
+
+      // Step 10: Analyze content performance
+      const contentPerformance = this.analyzeContentPerformance(processedPosts);
+
+      // Step 11: Get top performing posts
+      const topPerformingPosts = processedPosts
+        .map(post => ({
+          ...post,
+          performanceScore: this.calculatePostPerformanceScore(post)
+        }))
+        .sort((a, b) => b.performanceScore - a.performanceScore)
+        .slice(0, 10)
+        .map(post => ({
+          id: post.id,
+          content: post.content,
+          engagement: post.totalEngagement,
+          reach: post.reach,
+          impressions: post.impressions,
+          date: post.date,
+          mediaType: post.mediaType,
+          performanceScore: post.performanceScore
+        }));
+
+      // Step 12: Generate content insights
+      const contentInsights = this.generateContentInsights(processedPosts);
 
       return {
-        totalPosts: posts.length,
-        avgEngagement: posts.length > 0 ? totalEngagement / posts.length : 0,
-        avgReach: posts.length > 0 ? totalReach / posts.length : 0,
-        avgImpressions: posts.length > 0 ? totalImpressions / posts.length : 0,
-        topPost: topPost || undefined,
+        totalPosts,
+        avgEngagement: totalPosts > 0 ? totalEngagements / totalPosts : 0,
+        avgReach: totalPosts > 0 ? totalReach / totalPosts : 0,
+        avgImpressions: totalPosts > 0 ? totalImpressions / totalPosts : 0,
+        totalReach,
+        totalImpressions,
+        totalEngagements,
+        engagementRate: totalImpressions > 0 ? (totalEngagements / totalImpressions) * 100 : 0,
+        organicReach,
+        paidReach,
+        viralReach,
+        totalReactions,
+        reactionBreakdown,
+        videoMetrics,
+        topPost: topPost ? {
+          id: topPost.id,
+          content: topPost.content,
+          engagement: topPost.totalEngagement,
+          reach: topPost.reach,
+          impressions: topPost.impressions,
+          date: topPost.date,
+          mediaType: topPost.mediaType,
+          reactions: topPost.reactions,
+          shares: topPost.shares,
+          comments: topPost.comments,
+          clicks: topPost.clicks,
+          videoViews: topPost.videoViews,
+          videoViewTime: topPost.videoViewTime
+        } : undefined,
         engagementTrend,
-        contentPerformance: contentPerformanceArray,
+        contentPerformance,
+        topPerformingPosts,
+        contentInsights
       };
 
     } catch (error) {
@@ -226,133 +435,739 @@ export class FacebookApiClient extends BaseApiClient {
 
   /**
    * Get comprehensive ads analytics for Facebook (Premium only)
-   * Following Facebook Marketing API documentation
+   * Enhanced with Meta Marketing API v23.0 comprehensive metrics
    */
   static async getAdsAnalytics(accessToken: string): Promise<AdsAnalytics> {
     try {
       // Step 1: Get user's ad accounts with proper permissions
-      const adAccountsUrl = `${this.BASE_URL}/me/adaccounts?access_token=${accessToken}&fields=id,name,account_status,currency`;
+      const adAccountsUrl = `${this.BASE_URL}/me/adaccounts?access_token=${accessToken}&fields=id,name,account_status,currency,timezone_name,business`;
       const adAccountsData = await this.makeRequest<any>(adAccountsUrl, {}, "Failed to fetch ad accounts");
-      
+
       if (!adAccountsData.data?.length) {
         throw new Error("No ad accounts found. Please ensure you have access to Facebook ads.");
       }
 
       // Find active ad account
-      const activeAccount = adAccountsData.data.find((account: any) => 
+      const activeAccount = adAccountsData.data.find((account: any) =>
         account.account_status === 1 || account.account_status === "ACTIVE"
       ) || adAccountsData.data[0];
-      
+
       const accountId = activeAccount.id;
 
-      // Step 2: Get ads insights using Facebook Marketing API
-      // Using campaign level insights with comprehensive metrics
+      // Step 2: Get comprehensive insights using Meta Marketing API v23.0
       const today = new Date();
       const thirtyDaysAgo = new Date(today.getTime() - (30 * 24 * 60 * 60 * 1000));
-      
+
       const timeRange = {
         since: thirtyDaysAgo.toISOString().split('T')[0],
         until: today.toISOString().split('T')[0]
       };
 
-      const insightsUrl = `${this.BASE_URL}/${accountId}/insights?access_token=${accessToken}&fields=impressions,reach,clicks,spend,cpm,cpc,ctr,actions,campaign_name,campaign_id&time_range=${JSON.stringify(timeRange)}&level=campaign&limit=50`;
-      
+      // Enhanced insights with comprehensive metrics
+      const insightsUrl = `${this.BASE_URL}/${accountId}/insights?access_token=${accessToken}&fields=${this.ADS_INSIGHTS_FIELDS}&time_range=${JSON.stringify(timeRange)}&level=campaign&limit=50&attribution_setting=unified`;
+
       const insightsData = await this.makeRequest<any>(insightsUrl, {}, "Failed to fetch Facebook ads insights");
       const insights = insightsData.data || [];
 
-      // Step 3: Process and aggregate metrics
-      let totalSpend = 0;
-      let totalReach = 0;
-      let totalImpressions = 0;
-      let totalClicks = 0;
-      let topAd: {
-        id: string;
-        name: string;
-        spend: number;
-        reach: number;
-        impressions: number;
-        clicks: number;
-        ctr: number;
-        date: string;
-      } | undefined = undefined;
-      let maxSpend = 0;
+      // Step 3: Get demographic breakdowns
+      const demographicInsights = await this.getAudienceBreakdowns(accountId, accessToken, timeRange);
 
-      const spendTrend: Array<{ 
-        date: string; 
-        spend: number; 
-        reach: number; 
-        impressions: number; 
-        clicks: number 
-      }> = [];
+      // Step 4: Get device and placement breakdowns
+      const deviceInsights = await this.getDeviceAndPlacementBreakdowns(accountId, accessToken, timeRange);
 
-      insights.forEach((insight: any) => {
-        const spend = parseFloat(insight.spend || 0);
-        const reach = parseInt(insight.reach || 0);
-        const impressions = parseInt(insight.impressions || 0);
-        const clicks = parseInt(insight.clicks || 0);
+      // Step 5: Process and aggregate comprehensive metrics
+      const processedData = this.processComprehensiveInsights(insights);
 
-        totalSpend += spend;
-        totalReach += reach;
-        totalImpressions += impressions;
-        totalClicks += clicks;
+      // Step 6: Merge all data sources and convert to expected format
+      const enhancedAudienceInsights = this.convertToExpectedAudienceFormat(demographicInsights);
 
-        // Track top performing campaign
-        if (spend > maxSpend) {
-          maxSpend = spend;
-          topAd = {
-            id: insight.campaign_id || 'unknown',
-            name: insight.campaign_name || 'Unknown Campaign',
-            spend,
-            reach,
-            impressions,
-            clicks,
-            ctr: parseFloat(insight.ctr || 0),
-            date: insight.date_start || new Date().toISOString().split('T')[0],
-          };
-        }
+      // Note: Enhanced metrics like device/placement breakdowns, quality metrics, etc.
+      // are calculated but would need to be added to the AdsAnalytics interface
+      // For now, returning the standard interface with enhanced audience insights
+      return {
+        ...processedData,
+        audienceInsights: enhancedAudienceInsights
+      } as AdsAnalytics;
 
-        // Add to spend trend
-        spendTrend.push({
-          date: insight.date_start || new Date().toISOString().split('T')[0],
+    } catch (error) {
+      logger.error("Failed to fetch Facebook ads analytics", { error });
+      return this.getMockAdsAnalytics();
+    }
+  }
+
+  /**
+   * Get audience demographic breakdowns
+   */
+  private static async getAudienceBreakdowns(accountId: string, accessToken: string, timeRange: any): Promise<{
+    ageGroups: Array<{ age: string; reach: number; impressions: number; spend: number }>;
+    genders: Array<{ gender: string; reach: number; impressions: number; spend: number }>;
+    topLocations: Array<{ location: string; reach: number; impressions: number; spend: number }>;
+  }> {
+    try {
+      // Age breakdown
+      const ageUrl = `${this.BASE_URL}/${accountId}/insights?access_token=${accessToken}&fields=reach,impressions,spend&breakdowns=age&time_range=${JSON.stringify(timeRange)}&level=campaign`;
+      const ageData = await this.makeRequest<any>(ageUrl, {}, "Failed to fetch age breakdowns");
+
+      // Gender breakdown
+      const genderUrl = `${this.BASE_URL}/${accountId}/insights?access_token=${accessToken}&fields=reach,impressions,spend&breakdowns=gender&time_range=${JSON.stringify(timeRange)}&level=campaign`;
+      const genderData = await this.makeRequest<any>(genderUrl, {}, "Failed to fetch gender breakdowns");
+
+      // Location breakdown
+      const locationUrl = `${this.BASE_URL}/${accountId}/insights?access_token=${accessToken}&fields=reach,impressions,spend&breakdowns=country&time_range=${JSON.stringify(timeRange)}&level=campaign&limit=10`;
+      const locationData = await this.makeRequest<any>(locationUrl, {}, "Failed to fetch location breakdowns");
+
+      return {
+        ageGroups: this.processBreakdownData(ageData.data || [], 'age'),
+        genders: this.processBreakdownData(genderData.data || [], 'gender'),
+        topLocations: this.processBreakdownData(locationData.data || [], 'country')
+      };
+    } catch (error) {
+      logger.error("Failed to fetch audience breakdowns", { error });
+      return { ageGroups: [], genders: [], topLocations: [] };
+    }
+  }
+
+  /**
+   * Get device and placement breakdowns
+   */
+  private static async getDeviceAndPlacementBreakdowns(accountId: string, accessToken: string, timeRange: any): Promise<{
+    devices: Array<{ device: string; reach: number; impressions: number; spend: number }>;
+    placements: Array<{ placement: string; reach: number; impressions: number; spend: number }>;
+  }> {
+    try {
+      // Device breakdown
+      const deviceUrl = `${this.BASE_URL}/${accountId}/insights?access_token=${accessToken}&fields=reach,impressions,spend&breakdowns=device_platform&time_range=${JSON.stringify(timeRange)}&level=campaign`;
+      const deviceData = await this.makeRequest<any>(deviceUrl, {}, "Failed to fetch device breakdowns");
+
+      // Placement breakdown
+      const placementUrl = `${this.BASE_URL}/${accountId}/insights?access_token=${accessToken}&fields=reach,impressions,spend&breakdowns=publisher_platform&time_range=${JSON.stringify(timeRange)}&level=campaign`;
+      const placementData = await this.makeRequest<any>(placementUrl, {}, "Failed to fetch placement breakdowns");
+
+      return {
+        devices: this.processBreakdownData(deviceData.data || [], 'device_platform'),
+        placements: this.processBreakdownData(placementData.data || [], 'publisher_platform')
+      };
+    } catch (error) {
+      logger.error("Failed to fetch device and placement breakdowns", { error });
+      return { devices: [], placements: [] };
+    }
+  }
+
+  /**
+   * Process comprehensive insights data
+   */
+  private static processComprehensiveInsights(insights: any[]) {
+    let totalSpend = 0;
+    let totalReach = 0;
+    let totalImpressions = 0;
+    let totalClicks = 0;
+    let totalConversions = 0;
+    let totalVideoViews = 0;
+    let topAd: any = undefined;
+    let maxSpend = 0;
+
+    const spendTrend: Array<{
+      date: string;
+      spend: number;
+      reach: number;
+      impressions: number;
+      clicks: number;
+      conversions: number;
+      videoViews: number;
+    }> = [];
+
+    insights.forEach((insight: any) => {
+      const spend = parseFloat(insight.spend || 0);
+      const reach = parseInt(insight.reach || 0);
+      const impressions = parseInt(insight.impressions || 0);
+      const clicks = parseInt(insight.clicks || 0);
+      const conversions = this.extractConversions(insight.actions);
+      const videoViews = parseInt(insight.video_play_actions?.[0]?.value || 0);
+
+      totalSpend += spend;
+      totalReach += reach;
+      totalImpressions += impressions;
+      totalClicks += clicks;
+      totalConversions += conversions;
+      totalVideoViews += videoViews;
+
+      // Track top performing campaign
+      if (spend > maxSpend) {
+        maxSpend = spend;
+        topAd = {
+          id: insight.campaign_id || 'unknown',
+          name: insight.campaign_name || 'Unknown Campaign',
           spend,
           reach,
           impressions,
           clicks,
-        });
+          ctr: parseFloat(insight.ctr || 0),
+          conversions,
+          videoViews,
+          qualityRanking: insight.quality_ranking || 'unknown',
+          engagementRateRanking: insight.engagement_rate_ranking || 'unknown',
+          date: insight.date_start || new Date().toISOString().split('T')[0],
+        };
+      }
+
+      // Add to trend data
+      spendTrend.push({
+        date: insight.date_start || new Date().toISOString().split('T')[0],
+        spend,
+        reach,
+        impressions,
+        clicks,
+        conversions,
+        videoViews,
       });
+    });
 
-      // Sort spend trend by date
-      spendTrend.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    // Sort trend by date
+    spendTrend.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-      // Calculate averages
-      const campaignCount = insights.length || 1;
-      const avgCpc = totalClicks > 0 ? totalSpend / totalClicks : 0;
-      const avgCpm = totalImpressions > 0 ? (totalSpend / totalImpressions) * 1000 : 0;
-      const avgCtr = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0;
+    // Calculate enhanced metrics
+    const avgCpc = totalClicks > 0 ? totalSpend / totalClicks : 0;
+    const avgCpm = totalImpressions > 0 ? (totalSpend / totalImpressions) * 1000 : 0;
+    const avgCtr = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0;
+    const conversionRate = totalClicks > 0 ? (totalConversions / totalClicks) * 100 : 0;
+    const costPerConversion = totalConversions > 0 ? totalSpend / totalConversions : 0;
+
+    return {
+      totalSpend,
+      totalReach,
+      totalImpressions,
+      totalClicks,
+      totalConversions,
+      totalVideoViews,
+      cpc: Number(avgCpc.toFixed(4)),
+      cpm: Number(avgCpm.toFixed(2)),
+      ctr: Number(avgCtr.toFixed(2)),
+      conversionRate: Number(conversionRate.toFixed(2)),
+      costPerConversion: Number(costPerConversion.toFixed(2)),
+      roas: 0, // Would need revenue data
+      topAd,
+      spendTrend,
+    };
+  }
+
+  /**
+   * Process comprehensive posts data with insights
+   */
+  private static processComprehensivePostsData(postsWithInsights: any[]): any[] {
+    return postsWithInsights.map(post => {
+      const insights = post.insights || [];
+
+      // Extract basic engagement metrics
+      const likes = post.likes?.summary?.total_count || 0;
+      const comments = post.comments?.summary?.total_count || 0;
+      const shares = post.shares?.count || 0;
+
+      // Extract reaction counts
+      const reactions = this.extractReactionCounts(post.reactions);
+      const totalReactions = Object.values(reactions).reduce((sum, count) => sum + count, 0);
+
+      // Extract insights metrics
+      const insightsData = this.extractPostInsights(insights);
+
+      // Determine media type
+      const mediaType = this.determineEnhancedMediaType(post);
 
       return {
-        totalSpend,
-        totalReach,
-        totalImpressions,
-        totalClicks,
-        cpc: Number(avgCpc.toFixed(4)),
-        cpm: Number(avgCpm.toFixed(2)),
-        ctr: Number(avgCtr.toFixed(2)),
-        roas: 0, // Return on ad spend - would need revenue data to calculate
-        topAd,
-        spendTrend,
-        audienceInsights: {
-          ageGroups: [],
-          genders: [],
-          topLocations: []
-        }
+        id: post.id,
+        content: post.message || post.story || 'No content available',
+        date: post.created_time,
+        mediaType,
+        likes,
+        comments,
+        shares,
+        reactions,
+        totalReactions,
+        totalEngagement: likes + comments + shares + totalReactions,
+        reach: insightsData.reach,
+        impressions: insightsData.impressions,
+        organicReach: insightsData.organicReach,
+        paidReach: insightsData.paidReach,
+        viralReach: insightsData.viralReach,
+        clicks: insightsData.clicks,
+        engagedUsers: insightsData.engagedUsers,
+        // Video specific metrics
+        videoViews: insightsData.videoViews,
+        videoViewsUnique: insightsData.videoViewsUnique,
+        videoViews3s: insightsData.videoViews,
+        videoViews15s: insightsData.videoViews15s,
+        videoViews30s: insightsData.videoViews30s,
+        videoViews60s: insightsData.videoViews60s,
+        videoViewTime: insightsData.videoViewTime,
+        soundOnViews: insightsData.soundOnViews,
+        autoplayedViews: insightsData.autoplayedViews,
+        clickToPlayViews: insightsData.clickToPlayViews,
+        videoCompletionRate: insightsData.videoCompletionRate
+      };
+    });
+  }
+
+  /**
+   * Extract reaction counts from Facebook post reactions
+   */
+  private static extractReactionCounts(reactionsData: any): {
+    like: number;
+    love: number;
+    wow: number;
+    haha: number;
+    sad: number;
+    angry: number;
+  } {
+    const defaultReactions = { like: 0, love: 0, wow: 0, haha: 0, sad: 0, angry: 0 };
+
+    if (!reactionsData?.data) return defaultReactions;
+
+    const reactions = { ...defaultReactions };
+    reactionsData.data.forEach((reaction: any) => {
+      const type = reaction.type.toLowerCase();
+      if (type in reactions) {
+        reactions[type as keyof typeof reactions] = reaction.summary?.total_count || 0;
+      }
+    });
+
+    return reactions;
+  }
+
+  /**
+   * Extract comprehensive insights from post insights data
+   */
+  private static extractPostInsights(insights: any[]): any {
+    const extractedData = {
+      reach: 0,
+      impressions: 0,
+      organicReach: 0,
+      paidReach: 0,
+      viralReach: 0,
+      clicks: 0,
+      engagedUsers: 0,
+      videoViews: 0,
+      videoViewsUnique: 0,
+      videoViews15s: 0,
+      videoViews30s: 0,
+      videoViews60s: 0,
+      videoViewTime: 0,
+      soundOnViews: 0,
+      autoplayedViews: 0,
+      clickToPlayViews: 0,
+      videoCompletionRate: 0
+    };
+
+    insights.forEach(insight => {
+      const value = insight.values?.[0]?.value || 0;
+
+      switch (insight.name) {
+        case 'post_impressions':
+          extractedData.impressions = value;
+          break;
+        case 'post_impressions_unique':
+          extractedData.reach = value;
+          break;
+        case 'post_impressions_organic':
+          extractedData.organicReach = value;
+          break;
+        case 'post_impressions_paid':
+          extractedData.paidReach = value;
+          break;
+        case 'post_impressions_viral':
+          extractedData.viralReach = value;
+          break;
+        case 'post_clicks':
+          extractedData.clicks = value;
+          break;
+        case 'post_engaged_users':
+          extractedData.engagedUsers = value;
+          break;
+        case 'post_video_views':
+          extractedData.videoViews = value;
+          break;
+        case 'post_video_views_unique':
+          extractedData.videoViewsUnique = value;
+          break;
+        case 'post_video_views_15s':
+          extractedData.videoViews15s = value;
+          break;
+        case 'post_video_complete_views_30s':
+          extractedData.videoViews30s = value;
+          break;
+        case 'post_video_views_60s_excludes_shorter':
+          extractedData.videoViews60s = value;
+          break;
+        case 'post_video_view_time':
+          extractedData.videoViewTime = value;
+          break;
+        case 'post_video_views_sound_on':
+          extractedData.soundOnViews = value;
+          break;
+        case 'post_video_views_autoplayed':
+          extractedData.autoplayedViews = value;
+          break;
+        case 'post_video_views_clicked_to_play':
+          extractedData.clickToPlayViews = value;
+          break;
+      }
+    });
+
+    // Calculate video completion rate
+    if (extractedData.videoViews > 0 && extractedData.videoViews30s > 0) {
+      extractedData.videoCompletionRate = (extractedData.videoViews30s / extractedData.videoViews) * 100;
+    }
+
+    return extractedData;
+  }
+
+  /**
+   * Determine enhanced media type from post data
+   */
+  private static determineEnhancedMediaType(post: any): 'image' | 'video' | 'carousel' | 'text' {
+    if (post.type === 'video') return 'video';
+    if (post.attachments?.data?.[0]?.media_type === 'video') return 'video';
+    if (post.attachments?.data?.[0]?.type === 'video_inline') return 'video';
+
+    if (post.attachments?.data?.[0]?.subattachments?.data?.length > 1) return 'carousel';
+    if (post.attachments?.data?.[0]?.media_type === 'photo') return 'image';
+    if (post.attachments?.data?.[0]?.type === 'photo') return 'image';
+
+    return 'text';
+  }
+
+  /**
+   * Calculate video completion rate
+   */
+  private static calculateVideoCompletionRate(videoPosts: any[]): number {
+    if (videoPosts.length === 0) return 0;
+
+    const totalCompletionRate = videoPosts.reduce((sum, post) => {
+      if (post.videoViews > 0 && post.videoViews30s > 0) {
+        return sum + ((post.videoViews30s / post.videoViews) * 100);
+      }
+      return sum;
+    }, 0);
+
+    return totalCompletionRate / videoPosts.length;
+  }
+
+  /**
+   * Calculate post performance score
+   */
+  private static calculatePostPerformanceScore(post: any): number {
+    const engagementScore = post.totalEngagement * 0.4;
+    const reachScore = (post.reach || 0) * 0.3;
+    const impressionScore = (post.impressions || 0) * 0.2;
+    const clickScore = (post.clicks || 0) * 0.1;
+
+    return engagementScore + reachScore + impressionScore + clickScore;
+  }
+
+  /**
+   * Generate engagement trend data
+   */
+  private static generateEngagementTrend(processedPosts: any[]): Array<{
+    date: string;
+    engagement: number;
+    reach: number;
+    impressions: number;
+    organicReach?: number;
+    paidReach?: number;
+    viralReach?: number;
+  }> {
+    const trendMap = new Map<string, any>();
+
+    processedPosts.forEach(post => {
+      const date = new Date(post.date).toISOString().split('T')[0];
+      const existing = trendMap.get(date) || {
+        date,
+        engagement: 0,
+        reach: 0,
+        impressions: 0,
+        organicReach: 0,
+        paidReach: 0,
+        viralReach: 0,
+        count: 0
       };
 
-    } catch (error) {
-      logger.error("Failed to fetch Facebook ads analytics", { error });
-      // Return empty analytics rather than failing completely
-      return this.getMockAdsAnalytics();
-    }
+      existing.engagement += post.totalEngagement;
+      existing.reach += post.reach || 0;
+      existing.impressions += post.impressions || 0;
+      existing.organicReach += post.organicReach || 0;
+      existing.paidReach += post.paidReach || 0;
+      existing.viralReach += post.viralReach || 0;
+      existing.count += 1;
+
+      trendMap.set(date, existing);
+    });
+
+    return Array.from(trendMap.values())
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+      .map(item => ({
+        date: item.date,
+        engagement: item.engagement,
+        reach: item.reach,
+        impressions: item.impressions,
+        organicReach: item.organicReach,
+        paidReach: item.paidReach,
+        viralReach: item.viralReach
+      }));
+  }
+
+  /**
+   * Analyze content performance by type
+   */
+  private static analyzeContentPerformance(processedPosts: any[]): Array<{
+    type: 'image' | 'video' | 'carousel' | 'text';
+    count: number;
+    avgEngagement: number;
+    avgReach: number;
+    avgImpressions: number;
+    avgClicks: number;
+    engagementRate: number;
+  }> {
+    const performanceMap = new Map<string, any>();
+
+    processedPosts.forEach(post => {
+      const type = post.mediaType;
+      const existing = performanceMap.get(type) || {
+        type,
+        count: 0,
+        totalEngagement: 0,
+        totalReach: 0,
+        totalImpressions: 0,
+        totalClicks: 0
+      };
+
+      existing.count += 1;
+      existing.totalEngagement += post.totalEngagement;
+      existing.totalReach += post.reach || 0;
+      existing.totalImpressions += post.impressions || 0;
+      existing.totalClicks += post.clicks || 0;
+
+      performanceMap.set(type, existing);
+    });
+
+    return Array.from(performanceMap.values()).map(item => ({
+      type: item.type,
+      count: item.count,
+      avgEngagement: item.count > 0 ? item.totalEngagement / item.count : 0,
+      avgReach: item.count > 0 ? item.totalReach / item.count : 0,
+      avgImpressions: item.count > 0 ? item.totalImpressions / item.count : 0,
+      avgClicks: item.count > 0 ? item.totalClicks / item.count : 0,
+      engagementRate: item.totalImpressions > 0 ? (item.totalEngagement / item.totalImpressions) * 100 : 0
+    }));
+  }
+
+  /**
+   * Generate content insights and recommendations
+   */
+  private static generateContentInsights(processedPosts: any[]): {
+    bestPerformingType: string;
+    optimalPostingHours: Array<{ hour: number; avgEngagement: number }>;
+    avgEngagementByType: Record<string, number>;
+    avgReachByType: Record<string, number>;
+  } {
+    // Calculate best performing content type
+    const contentPerformance = this.analyzeContentPerformance(processedPosts);
+    const bestPerformingType = contentPerformance.reduce((best, current) => {
+      return current.engagementRate > (best?.engagementRate || 0) ? current : best;
+    }, null as any)?.type || 'image';
+
+    // Calculate optimal posting hours
+    const hourlyPerformance = new Map<number, { totalEngagement: number; count: number }>();
+
+    processedPosts.forEach(post => {
+      const hour = new Date(post.date).getHours();
+      const existing = hourlyPerformance.get(hour) || { totalEngagement: 0, count: 0 };
+      existing.totalEngagement += post.totalEngagement;
+      existing.count += 1;
+      hourlyPerformance.set(hour, existing);
+    });
+
+    const optimalPostingHours = Array.from(hourlyPerformance.entries())
+      .map(([hour, data]) => ({
+        hour,
+        avgEngagement: data.count > 0 ? data.totalEngagement / data.count : 0
+      }))
+      .sort((a, b) => b.avgEngagement - a.avgEngagement)
+      .slice(0, 6);
+
+    // Calculate average engagement and reach by type
+    const avgEngagementByType: Record<string, number> = {};
+    const avgReachByType: Record<string, number> = {};
+
+    contentPerformance.forEach(item => {
+      avgEngagementByType[item.type] = item.avgEngagement;
+      avgReachByType[item.type] = item.avgReach;
+    });
+
+    return {
+      bestPerformingType,
+      optimalPostingHours,
+      avgEngagementByType,
+      avgReachByType
+    };
+  }
+
+  /**
+   * Process breakdown data into standardized format
+   */
+  private static processBreakdownData(data: any[], breakdownKey: string): any[] {
+    return data.map(item => {
+      const baseData = {
+        reach: parseInt(item.reach || 0),
+        impressions: parseInt(item.impressions || 0),
+        spend: parseFloat(item.spend || 0)
+      };
+
+      if (breakdownKey === 'age') {
+        return { age: item[breakdownKey] || 'unknown', ...baseData };
+      } else if (breakdownKey === 'gender') {
+        return { gender: item[breakdownKey] || 'unknown', ...baseData };
+      } else if (breakdownKey === 'country') {
+        return { location: item[breakdownKey] || 'unknown', ...baseData };
+      } else if (breakdownKey === 'device_platform') {
+        return { device: item[breakdownKey] || 'unknown', ...baseData };
+      } else if (breakdownKey === 'publisher_platform') {
+        return { placement: item[breakdownKey] || 'unknown', ...baseData };
+      }
+
+      return baseData;
+    });
+  }
+
+  /**
+   * Extract conversion data from actions array
+   */
+  private static extractConversions(actions: any[]): number {
+    if (!actions) return 0;
+    const conversionActions = actions.filter(action =>
+      action.action_type?.includes('conversion') ||
+      action.action_type?.includes('purchase') ||
+      action.action_type?.includes('lead')
+    );
+    return conversionActions.reduce((sum, action) => sum + parseInt(action.value || 0), 0);
+  }
+
+  /**
+   * Calculate quality metrics
+   */
+  private static calculateQualityMetrics(insights: any[]) {
+    const qualityData = insights.filter(insight => insight.quality_ranking);
+    const qualityDistribution = qualityData.reduce((acc, insight) => {
+      const ranking = insight.quality_ranking;
+      acc[ranking] = (acc[ranking] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+
+    return {
+      averageQualityRanking: this.getMostCommonRanking(qualityDistribution),
+      qualityDistribution
+    };
+  }
+
+  /**
+   * Calculate video-specific metrics
+   */
+  private static calculateVideoMetrics(insights: any[]) {
+    const videoInsights = insights.filter(insight => insight.video_play_actions);
+    let totalVideoViews = 0;
+    let totalVideoCompletions = 0;
+
+    videoInsights.forEach(insight => {
+      if (insight.video_play_actions) {
+        insight.video_play_actions.forEach((action: any) => {
+          if (action.action_type === 'video_view') {
+            totalVideoViews += parseInt(action.value || 0);
+          }
+          if (action.action_type === 'video_p100_watched_actions') {
+            totalVideoCompletions += parseInt(action.value || 0);
+          }
+        });
+      }
+    });
+
+    const completionRate = totalVideoViews > 0 ? (totalVideoCompletions / totalVideoViews) * 100 : 0;
+
+    return {
+      totalVideoViews,
+      totalVideoCompletions,
+      videoCompletionRate: Number(completionRate.toFixed(2))
+    };
+  }
+
+  /**
+   * Calculate conversion metrics
+   */
+  private static calculateConversionMetrics(insights: any[]) {
+    let totalPurchases = 0;
+    let totalLeads = 0;
+    let totalPurchaseValue = 0;
+
+    insights.forEach(insight => {
+      if (insight.actions) {
+        insight.actions.forEach((action: any) => {
+          if (action.action_type === 'purchase') {
+            totalPurchases += parseInt(action.value || 0);
+          }
+          if (action.action_type === 'lead') {
+            totalLeads += parseInt(action.value || 0);
+          }
+        });
+      }
+      if (insight.action_values) {
+        insight.action_values.forEach((value: any) => {
+          if (value.action_type === 'purchase') {
+            totalPurchaseValue += parseFloat(value.value || 0);
+          }
+        });
+      }
+    });
+
+    return {
+      totalPurchases,
+      totalLeads,
+      totalPurchaseValue,
+      averageOrderValue: totalPurchases > 0 ? totalPurchaseValue / totalPurchases : 0
+    };
+  }
+
+  /**
+   * Convert enhanced demographic data to expected audience format
+   */
+  private static convertToExpectedAudienceFormat(demographicInsights: {
+    ageGroups: any[];
+    genders: any[];
+    topLocations: any[];
+  }) {
+    // Calculate total reach for percentage calculations
+    const totalAgeReach = demographicInsights.ageGroups.reduce((sum, item) => sum + item.reach, 0);
+    const totalGenderReach = demographicInsights.genders.reduce((sum, item) => sum + item.reach, 0);
+    const totalLocationReach = demographicInsights.topLocations.reduce((sum, item) => sum + item.reach, 0);
+
+    return {
+      ageGroups: demographicInsights.ageGroups.map(item => ({
+        range: item.age,
+        percentage: totalAgeReach > 0 ? Number(((item.reach / totalAgeReach) * 100).toFixed(1)) : 0
+      })),
+      genders: demographicInsights.genders.map(item => ({
+        gender: item.gender,
+        percentage: totalGenderReach > 0 ? Number(((item.reach / totalGenderReach) * 100).toFixed(1)) : 0
+      })),
+      topLocations: demographicInsights.topLocations.map(item => ({
+        location: item.location,
+        percentage: totalLocationReach > 0 ? Number(((item.reach / totalLocationReach) * 100).toFixed(1)) : 0
+      }))
+    };
+  }
+
+  /**
+   * Get most common ranking from distribution
+   */
+  private static getMostCommonRanking(distribution: Record<string, number>): string {
+    return Object.entries(distribution).reduce((a, b) =>
+      distribution[a[0]] > distribution[b[0]] ? a : b
+    )?.[0] || 'unknown';
   }
 
   /**
@@ -386,10 +1201,10 @@ export class FacebookApiClient extends BaseApiClient {
       }
 
       // Step 2: Find first page where user can manage content
-      const pageWithPermissions = pagesData.data.find((page: any) => 
+      const pageWithPermissions = pagesData.data.find((page: any) =>
         page.tasks?.includes('CREATE_CONTENT') || page.tasks?.includes('MANAGE')
       );
-      
+
       if (!pageWithPermissions) {
         logger.warn("No Facebook page found with content management permissions");
         return null;
@@ -412,7 +1227,7 @@ export class FacebookApiClient extends BaseApiClient {
     try {
       // Get Facebook page information
       const pageInfo = await this.getFacebookPageInfo(accessToken);
-      
+
       if (!pageInfo) {
         throw new Error("No Facebook page found. Please ensure you have a Facebook page with appropriate permissions.");
       }
@@ -422,9 +1237,9 @@ export class FacebookApiClient extends BaseApiClient {
       // Query Facebook page directly using page ID
       const fields = "id,name,fan_count,checkins,followers_count,about,category";
       const url = `${this.BASE_URL}/${pageId}?access_token=${pageAccessToken}&fields=${fields}`;
-      
+
       const pageData = await this.makeRequest<any>(url, {}, "Failed to fetch Facebook page data");
-      
+
       return {
         id: pageData?.id || pageId,
         name: pageData?.name || pageInfo.pageName,
@@ -445,7 +1260,7 @@ export class FacebookApiClient extends BaseApiClient {
     try {
       // Get Facebook page information
       const pageInfo = await this.getFacebookPageInfo(accessToken);
-      
+
       if (!pageInfo) {
         throw new Error("No Facebook page found");
       }
@@ -489,7 +1304,7 @@ export class FacebookApiClient extends BaseApiClient {
     try {
       // Get Facebook page information
       const pageInfo = await this.getFacebookPageInfo(accessToken);
-      
+
       if (!pageInfo) {
         throw new Error("No Facebook page found");
       }
@@ -588,6 +1403,35 @@ export class FacebookApiClient extends BaseApiClient {
       avgEngagement: 156.4,
       avgReach: 3245.8,
       avgImpressions: 4567.2,
+      totalReach: 81145,
+      totalImpressions: 114180,
+      totalEngagements: 3910,
+      engagementRate: 3.42,
+      organicReach: 65200,
+      paidReach: 12345,
+      viralReach: 3600,
+      totalReactions: 2890,
+      reactionBreakdown: {
+        like: 1850,
+        love: 456,
+        wow: 234,
+        haha: 198,
+        sad: 89,
+        angry: 63
+      },
+      videoMetrics: {
+        totalViews: 8450,
+        avgViewTime: 32500, // milliseconds
+        viewCompletionRate: 65.4,
+        videoViewsUnique: 6780,
+        videoViews3s: 8450,
+        videoViews15s: 5890,
+        videoViews30s: 3450,
+        videoViews60s: 1890,
+        soundOnViews: 4230,
+        autoplayedViews: 6780,
+        clickToPlayViews: 1670
+      },
       topPost: {
         id: "mock_top_post",
         content: "Our latest product update is here! Check out the amazing new features that will revolutionize your workflow.",
@@ -596,20 +1440,110 @@ export class FacebookApiClient extends BaseApiClient {
         impressions: 12459,
         date: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
         mediaType: 'image',
+        reactions: {
+          like: 280,
+          love: 89,
+          wow: 45,
+          haha: 32,
+          sad: 12,
+          angry: 8
+        },
+        shares: 78,
+        comments: 156,
+        clicks: 234,
+        videoViews: 0,
+        videoViewTime: 0
       },
       engagementTrend: [
-        { date: '2024-01-01', engagement: 234, reach: 2456, impressions: 3789 },
-        { date: '2024-01-02', engagement: 189, reach: 2123, impressions: 3456 },
-        { date: '2024-01-03', engagement: 456, reach: 4567, impressions: 6789 },
-        { date: '2024-01-04', engagement: 321, reach: 3234, impressions: 4567 },
-        { date: '2024-01-05', engagement: 278, reach: 2789, impressions: 4123 },
+        { date: '2024-01-01', engagement: 234, reach: 2456, impressions: 3789, organicReach: 2100, paidReach: 300, viralReach: 56 },
+        { date: '2024-01-02', engagement: 189, reach: 2123, impressions: 3456, organicReach: 1890, paidReach: 200, viralReach: 33 },
+        { date: '2024-01-03', engagement: 456, reach: 4567, impressions: 6789, organicReach: 3890, paidReach: 600, viralReach: 77 },
+        { date: '2024-01-04', engagement: 321, reach: 3234, impressions: 4567, organicReach: 2800, paidReach: 400, viralReach: 34 },
+        { date: '2024-01-05', engagement: 278, reach: 2789, impressions: 4123, organicReach: 2300, paidReach: 450, viralReach: 39 },
       ],
       contentPerformance: [
-        { type: 'image', count: 15, avgEngagement: 189.3 },
-        { type: 'video', count: 6, avgEngagement: 267.8 },
-        { type: 'carousel', count: 3, avgEngagement: 345.2 },
-        { type: 'text', count: 1, avgEngagement: 98.5 },
+        {
+          type: 'image',
+          count: 15,
+          avgEngagement: 189.3,
+          avgReach: 3456.7,
+          avgImpressions: 4789.2,
+          avgClicks: 67.8,
+          engagementRate: 3.95
+        },
+        {
+          type: 'video',
+          count: 6,
+          avgEngagement: 267.8,
+          avgReach: 4567.9,
+          avgImpressions: 6234.5,
+          avgClicks: 89.3,
+          engagementRate: 4.29
+        },
+        {
+          type: 'carousel',
+          count: 3,
+          avgEngagement: 345.2,
+          avgReach: 5678.4,
+          avgImpressions: 7890.6,
+          avgClicks: 123.4,
+          engagementRate: 4.37
+        },
+        {
+          type: 'text',
+          count: 1,
+          avgEngagement: 98.5,
+          avgReach: 1234.5,
+          avgImpressions: 2345.6,
+          avgClicks: 34.2,
+          engagementRate: 4.20
+        },
       ],
+      topPerformingPosts: [
+        {
+          id: "mock_post_1",
+          content: "🚀 Exciting product launch announcement! Get ready for something amazing...",
+          engagement: 567,
+          reach: 8945,
+          impressions: 13456,
+          date: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+          mediaType: 'video',
+          performanceScore: 12456.8
+        },
+        {
+          id: "mock_post_2",
+          content: "Behind-the-scenes look at our development process 📸",
+          engagement: 423,
+          reach: 6789,
+          impressions: 9876,
+          date: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+          mediaType: 'carousel',
+          performanceScore: 9234.5
+        }
+      ],
+      contentInsights: {
+        bestPerformingType: 'carousel',
+        optimalPostingHours: [
+          { hour: 9, avgEngagement: 234.5 },
+          { hour: 12, avgEngagement: 198.7 },
+          { hour: 15, avgEngagement: 156.8 },
+          { hour: 18, avgEngagement: 189.3 },
+          { hour: 20, avgEngagement: 167.2 },
+          { hour: 21, avgEngagement: 145.6 }
+        ],
+        avgEngagementByType: {
+          image: 189.3,
+          video: 267.8,
+          carousel: 345.2,
+          text: 98.5
+        },
+        avgReachByType: {
+          image: 3456.7,
+          video: 4567.9,
+          carousel: 5678.4,
+          text: 1234.5
+        }
+      }
     };
   }
 

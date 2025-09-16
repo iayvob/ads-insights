@@ -5,6 +5,39 @@ export interface PostAnalytics {
   avgEngagement: number
   avgReach: number
   avgImpressions: number
+  // Enhanced Post Metrics
+  totalReach: number
+  totalImpressions: number
+  totalEngagements: number
+  engagementRate: number
+  // Post Performance Breakdown
+  organicReach: number
+  paidReach: number
+  viralReach: number
+  // Reaction Breakdown
+  totalReactions: number
+  reactionBreakdown: {
+    like: number
+    love: number
+    wow: number
+    haha: number
+    sad: number
+    angry: number
+  }
+  // Video Metrics (for video posts)
+  videoMetrics?: {
+    totalViews: number
+    avgViewTime: number
+    viewCompletionRate: number
+    videoViewsUnique: number
+    videoViews3s: number
+    videoViews15s: number
+    videoViews30s: number
+    videoViews60s: number
+    soundOnViews: number
+    autoplayedViews: number
+    clickToPlayViews: number
+  }
   topPost?: {
     id: string
     content: string
@@ -13,18 +46,57 @@ export interface PostAnalytics {
     impressions: number
     date: string
     mediaType?: 'image' | 'video' | 'carousel' | 'text'
+    reactions: {
+      like: number
+      love: number
+      wow: number
+      haha: number
+      sad: number
+      angry: number
+    }
+    shares: number
+    comments: number
+    clicks: number
+    // Video specific metrics if applicable
+    videoViews?: number
+    videoViewTime?: number
   }
   engagementTrend: Array<{
     date: string
     engagement: number
     reach: number
     impressions: number
+    organicReach?: number
+    paidReach?: number
+    viralReach?: number
   }>
   contentPerformance: Array<{
     type: 'image' | 'video' | 'carousel' | 'text'
     count: number
     avgEngagement: number
+    avgReach: number
+    avgImpressions: number
+    avgClicks: number
+    engagementRate: number
   }>
+  // Post Performance Analysis
+  topPerformingPosts: Array<{
+    id: string
+    content: string
+    engagement: number
+    reach: number
+    impressions: number
+    date: string
+    mediaType: 'image' | 'video' | 'carousel' | 'text'
+    performanceScore: number
+  }>
+  // Content Insights
+  contentInsights: {
+    bestPerformingType: string
+    optimalPostingHours: Array<{ hour: number; avgEngagement: number }>
+    avgEngagementByType: Record<string, number>
+    avgReachByType: Record<string, number>
+  }
 }
 
 export interface AdsAnalytics {

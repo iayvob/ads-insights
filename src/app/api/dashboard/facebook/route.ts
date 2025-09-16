@@ -5,6 +5,7 @@ import { withErrorHandling } from "@/config/middleware/middleware"
 import { addSecurityHeaders } from "@/controllers/api-response"
 import { logger } from "@/config/logger"
 import { ServerSessionService } from "@/services/session-server"
+import { FacebookApiClient } from "@/services/api-clients/facebook-client"
 
 export const dynamic = "force-dynamic";
 export const dynamicParams = true;
@@ -94,11 +95,17 @@ interface AdsAnalytics {
     clicks: number
     conversions: number
   }>
+  // Enhanced fields from FacebookApiClient
+  audienceInsights?: {
+    ageGroups: Array<{ range: string; percentage: number }>
+    genders: Array<{ gender: string; percentage: number }>
+    topLocations: Array<{ location: string; percentage: number }>
+  }
 }
 
 export const GET = withErrorHandling(async (request: NextRequest) => {
   const session = await ServerSessionService.getSession(request)
-  
+
   if (!session?.userId) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
   }
@@ -107,20 +114,20 @@ export const GET = withErrorHandling(async (request: NextRequest) => {
     // Get Facebook auth provider
     const activeProviders = await UserService.getActiveProviders(session.userId)
     const authProvider = activeProviders.find(p => p.provider === "facebook")
-    
+
     if (!authProvider || !authProvider.accessToken) {
-      return NextResponse.json({ 
+      return NextResponse.json({
         error: "Facebook not connected",
-        connected: false 
+        connected: false
       }, { status: 404 })
     }
 
     // Check if token is expired
     const now = new Date()
     const expiresAt = authProvider.expiresAt ? new Date(authProvider.expiresAt) : now
-    
+
     if (expiresAt <= now) {
-      return NextResponse.json({ 
+      return NextResponse.json({
         error: "Facebook token expired. Please reconnect your account.",
         connected: false,
         requiresReconnect: true
@@ -137,9 +144,9 @@ export const GET = withErrorHandling(async (request: NextRequest) => {
       const userSubscriptionResult = await getUserSubscription(session.userId)
       if (userSubscriptionResult.success && userSubscriptionResult.subscription) {
         const subscription = userSubscriptionResult.subscription
-        hasAdsAccess = Boolean(subscription.planId && 
-                              subscription.planId !== "basic" && 
-                              subscription.status === "ACTIVE")
+        hasAdsAccess = Boolean(subscription.planId &&
+          subscription.planId !== "basic" &&
+          subscription.status === "ACTIVE")
       }
     } catch (error) {
       logger.warn("Could not verify subscription status", { userId: session.userId, error })
@@ -152,36 +159,99 @@ export const GET = withErrorHandling(async (request: NextRequest) => {
     const analyticsSummary = metadata.analytics_summary || {}
 
     if (facebookPages.length === 0) {
-      return NextResponse.json({ 
+      return NextResponse.json({
         error: "No Facebook pages found",
-        connected: false 
+        connected: false
       }, { status: 404 })
     }
 
     // Get page with highest follower count as primary
-    const primaryPage = facebookPages.reduce((prev: any, current: any) => 
+    const primaryPage = facebookPages.reduce((prev: any, current: any) =>
       (current.fan_count || 0) > (prev.fan_count || 0) ? current : prev
     )
 
-    // Fetch posts analytics
-    const postsAnalytics = await fetchFacebookPostsAnalytics(
-      primaryPage.id,
-      primaryPage.access_token,
-      userPlan
-    )
+    // Fetch posts analytics using enhanced FacebookApiClient
+    let postsAnalytics: PostAnalytics | undefined
+    try {
+      const enhancedPostsData = await FacebookApiClient.getPostsAnalytics(authProvider.accessToken)
+      postsAnalytics = mapEnhancedPostsToRouteFormat(enhancedPostsData)
 
-    // Fetch ads analytics only for paid plans
-    let adsAnalytics: AdsAnalytics | undefined
-    if (hasAdsAccess && adAccounts.length > 0) {
+      logger.info("Enhanced Facebook posts analytics fetched successfully", {
+        userId: session.userId,
+        totalPosts: enhancedPostsData.totalPosts,
+        avgEngagement: enhancedPostsData.avgEngagement,
+        totalImpressions: enhancedPostsData.avgImpressions
+      })
+    } catch (postsError) {
+      logger.warn("Enhanced Facebook posts analytics not available, using fallback", {
+        error: postsError,
+        userId: session.userId
+      })
+
+      // Fallback to legacy posts analytics
       try {
-        const primaryAdAccount = adAccounts.find((acc: any) => acc.is_primary) || adAccounts[0]
-        adsAnalytics = await fetchFacebookAdsAnalytics(
-          primaryAdAccount.id,
-          authProvider.accessToken,
+        postsAnalytics = await fetchFacebookPostsAnalytics(
+          primaryPage.id,
+          primaryPage.access_token,
           userPlan
         )
+        logger.info("Fallback Facebook posts analytics used", { userId: session.userId })
+      } catch (fallbackError) {
+        logger.error("Both enhanced and fallback Facebook posts analytics failed", {
+          enhancedError: postsError,
+          fallbackError,
+          userId: session.userId
+        })
+        // Use mock data as final fallback
+        postsAnalytics = getMockFacebookPostsAnalytics()
+      }
+    }
+
+    // Fetch ads analytics using enhanced FacebookApiClient for paid plans
+    let adsAnalytics: AdsAnalytics | undefined
+    if (hasAdsAccess) {
+      try {
+        // Use the enhanced FacebookApiClient for comprehensive ads analytics
+        const enhancedAdsData = await FacebookApiClient.getAdsAnalytics(authProvider.accessToken)
+
+        // Convert to expected format
+        adsAnalytics = mapEnhancedAdsToRouteFormat(enhancedAdsData)
+
+        logger.info("Enhanced Facebook ads analytics fetched successfully", {
+          userId: session.userId,
+          totalSpend: enhancedAdsData.totalSpend,
+          totalImpressions: enhancedAdsData.totalImpressions,
+          hasAudienceInsights: !!enhancedAdsData.audienceInsights,
+          audienceInsightsCount: {
+            ageGroups: enhancedAdsData.audienceInsights?.ageGroups?.length || 0,
+            genders: enhancedAdsData.audienceInsights?.genders?.length || 0,
+            topLocations: enhancedAdsData.audienceInsights?.topLocations?.length || 0
+          }
+        })
       } catch (adsError) {
-        logger.warn("Facebook ads analytics not available", { error: adsError })
+        logger.warn("Enhanced Facebook ads analytics not available", {
+          error: adsError,
+          userId: session.userId
+        })
+
+        // Fallback to legacy ads analytics if enhanced version fails
+        try {
+          const primaryAdAccount = adAccounts.find((acc: any) => acc.is_primary) || adAccounts[0]
+          if (primaryAdAccount) {
+            adsAnalytics = await fetchFacebookAdsAnalytics(
+              primaryAdAccount.id,
+              authProvider.accessToken,
+              userPlan
+            )
+            logger.info("Fallback Facebook ads analytics used", { userId: session.userId })
+          }
+        } catch (fallbackError) {
+          logger.error("Both enhanced and fallback Facebook ads analytics failed", {
+            enhancedError: adsError,
+            fallbackError,
+            userId: session.userId
+          })
+        }
       }
     }
 
@@ -198,7 +268,7 @@ export const GET = withErrorHandling(async (request: NextRequest) => {
       plan: userPlan
     }
 
-    logger.info("Facebook analytics fetched successfully", { 
+    logger.info("Facebook analytics fetched successfully", {
       userId: session.userId,
       plan: userPlan,
       hasPostsData: !!postsAnalytics,
@@ -233,17 +303,133 @@ export const GET = withErrorHandling(async (request: NextRequest) => {
     return addSecurityHeaders(response)
 
   } catch (error) {
-    logger.error("Facebook dashboard API error", { 
+    logger.error("Facebook dashboard API error", {
       error: error instanceof Error ? error.message : error,
       userId: session.userId
     })
-    
+
     return NextResponse.json(
-      { error: "Failed to fetch Facebook analytics" }, 
+      { error: "Failed to fetch Facebook analytics" },
       { status: 500 }
     )
   }
 })
+
+/**
+ * Map enhanced FacebookApiClient PostAnalytics to route expected format
+ */
+function mapEnhancedPostsToRouteFormat(enhancedData: import('@/validations/analytics-types').PostAnalytics): PostAnalytics {
+  // Calculate averages from enhanced data structure
+  const avgLikes = enhancedData.totalReactions > 0 ? enhancedData.totalReactions / enhancedData.totalPosts : 0;
+  const avgComments = enhancedData.topPost?.comments || 0;
+  const avgShares = enhancedData.topPost?.shares || 0;
+
+  return {
+    totalPosts: enhancedData.totalPosts,
+    avgImpressions: enhancedData.avgImpressions,
+    avgEngagement: enhancedData.avgEngagement,
+    avgReach: enhancedData.avgReach,
+    avgLikes: avgLikes,
+    avgComments: avgComments,
+    avgShares: avgShares,
+    totalImpressions: enhancedData.totalImpressions || (enhancedData.avgImpressions * enhancedData.totalPosts),
+    totalEngagements: enhancedData.totalEngagements || (enhancedData.avgEngagement * enhancedData.totalPosts),
+    engagementRate: enhancedData.engagementRate,
+    topPosts: enhancedData.topPerformingPosts ? enhancedData.topPerformingPosts.map(post => ({
+      id: post.id,
+      message: post.content,
+      created_time: post.date,
+      metrics: {
+        impressions: post.impressions,
+        reach: post.reach,
+        engagement: post.engagement,
+        likes: enhancedData.topPost?.reactions?.like || 0,
+        comments: enhancedData.topPost?.comments || 0,
+        shares: enhancedData.topPost?.shares || 0,
+        reactions: Object.values(enhancedData.topPost?.reactions || {}).reduce((sum, count) => sum + count, 0)
+      },
+      media: post.mediaType === 'image' ?
+        [{ type: 'photo', url: '' }] :
+        post.mediaType === 'video' ?
+          [{ type: 'video', url: '' }] :
+          post.mediaType === 'carousel' ?
+            [{ type: 'photo', url: '' }] : []
+    })) : (enhancedData.topPost ? [
+      {
+        id: enhancedData.topPost.id,
+        message: enhancedData.topPost.content,
+        created_time: enhancedData.topPost.date,
+        metrics: {
+          impressions: enhancedData.topPost.impressions,
+          reach: enhancedData.topPost.reach,
+          engagement: enhancedData.topPost.engagement,
+          likes: enhancedData.topPost.reactions?.like || 0,
+          comments: enhancedData.topPost.comments || 0,
+          shares: enhancedData.topPost.shares || 0,
+          reactions: Object.values(enhancedData.topPost.reactions || {}).reduce((sum, count) => sum + count, 0)
+        },
+        media: enhancedData.topPost.mediaType === 'image' ?
+          [{ type: 'photo', url: '' }] :
+          enhancedData.topPost.mediaType === 'video' ?
+            [{ type: 'video', url: '' }] :
+            enhancedData.topPost.mediaType === 'carousel' ?
+              [{ type: 'photo', url: '' }] : []
+      }
+    ] : []),
+    trends: enhancedData.engagementTrend.map(trend => ({
+      date: trend.date,
+      impressions: trend.impressions,
+      reach: trend.reach,
+      engagement: trend.engagement,
+      posts: 1 // Approximation since not available in enhanced data
+    })),
+    contentAnalysis: enhancedData.contentPerformance.map(content => ({
+      type: content.type === 'text' ? 'status' :
+        content.type === 'image' ? 'photo' :
+          content.type === 'video' ? 'video' :
+            content.type === 'carousel' ? 'photo' : 'link',
+      count: content.count,
+      avgEngagement: content.avgEngagement
+    }))
+  }
+}
+
+/**
+ * Map enhanced FacebookApiClient AdsAnalytics to route expected format
+ */
+function mapEnhancedAdsToRouteFormat(enhancedData: import('@/validations/analytics-types').AdsAnalytics): AdsAnalytics {
+  return {
+    totalSpend: enhancedData.totalSpend,
+    totalImpressions: enhancedData.totalImpressions,
+    totalClicks: enhancedData.totalClicks,
+    totalConversions: 0, // Will be calculated if available in enhancedData
+    avgCPC: enhancedData.cpc,
+    avgCPM: enhancedData.cpm,
+    avgCTR: enhancedData.ctr,
+    avgCPA: 0, // Calculate from conversions if available
+    roas: enhancedData.roas,
+    campaigns: enhancedData.topAd ? [
+      {
+        id: enhancedData.topAd.id,
+        name: enhancedData.topAd.name,
+        status: 'ACTIVE',
+        budget: 0, // Not available in enhanced data
+        spend: enhancedData.topAd.spend,
+        impressions: enhancedData.topAd.impressions,
+        clicks: enhancedData.topAd.clicks,
+        conversions: 0 // Not available in current topAd structure
+      }
+    ] : [],
+    trends: enhancedData.spendTrend.map(trend => ({
+      date: trend.date,
+      spend: trend.spend,
+      impressions: trend.impressions,
+      clicks: trend.clicks,
+      conversions: 0 // Not available in current spendTrend structure
+    })),
+    audienceInsights: enhancedData.audienceInsights
+  }
+}
 
 /**
  * Fetch Facebook posts analytics using Facebook Graph API
@@ -367,11 +553,11 @@ async function fetchFacebookPostsAnalytics(
     }
 
   } catch (error) {
-    logger.error("Failed to fetch Facebook posts analytics", { 
+    logger.error("Failed to fetch Facebook posts analytics", {
       pageId,
       error: error instanceof Error ? error.message : error
     })
-    
+
     // Return mock data for development
     return getMockFacebookPostsAnalytics()
   }
@@ -413,8 +599,8 @@ async function fetchFacebookAdsAnalytics(
       const spend = parseFloat(insights.spend || '0')
       const impressions = parseInt(insights.impressions || '0')
       const clicks = parseInt(insights.clicks || '0')
-      const conversions = insights.actions ? 
-        insights.actions.reduce((sum: number, action: any) => 
+      const conversions = insights.actions ?
+        insights.actions.reduce((sum: number, action: any) =>
           action.action_type === 'offsite_conversion' ? sum + parseInt(action.value || '0') : sum, 0) : 0
 
       totalSpend += spend
@@ -468,11 +654,11 @@ async function fetchFacebookAdsAnalytics(
     }
 
   } catch (error) {
-    logger.error("Failed to fetch Facebook ads analytics", { 
+    logger.error("Failed to fetch Facebook ads analytics", {
       adAccountId,
       error: error instanceof Error ? error.message : error
     })
-    
+
     // Return mock data for development
     return getMockFacebookAdsAnalytics()
   }
