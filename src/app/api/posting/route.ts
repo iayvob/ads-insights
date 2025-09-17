@@ -382,6 +382,7 @@ async function createPost(postData: any): Promise<string> {
       scheduledFor: postData.schedule?.scheduledAt || null,
       platforms: postData.platforms,
       mediaIds: postData.media?.map((m: any) => m.id || m.filename).filter(Boolean) || [],
+      amazonContent: postData.amazon || null, // Store Amazon-specific content
       createdAt: new Date(),
       updatedAt: new Date()
     });
@@ -485,6 +486,19 @@ async function publishPost(postId: string, platforms: string[]): Promise<Publish
             expires_at: provider.expiresAt ? provider.expiresAt.getTime() : Date.now() + 3600000
           }
         };
+      } else if (provider.provider === 'amazon' && provider.accessToken) {
+        session.connectedPlatforms!.amazon = {
+          account: {
+            userId: provider.providerId,
+            username: provider.username || 'amazon_seller',
+            email: provider.email || ''
+          },
+          account_tokens: {
+            access_token: provider.accessToken,
+            refresh_token: provider.refreshToken || undefined,
+            expires_at: provider.expiresAt ? provider.expiresAt.getTime() : Date.now() + 3600000
+          }
+        };
       }
     }
 
@@ -561,15 +575,27 @@ async function publishPost(postId: string, platforms: string[]): Promise<Publish
         }
 
         // Call platform-specific posting service
+        const postingContent = {
+          text: platformSpecificText,
+          media,
+          hashtags: postContent.hashtags,
+          mentions: postContent.mentions,
+          // Add Amazon-specific content for Amazon platform
+          ...(platform === 'amazon' && post.amazonContent && {
+            brandContent: {
+              brandName: post.amazonContent.brandEntityId || 'Unknown Brand',
+              headline: post.amazonContent.brandStoryTitle,
+              targetAudience: post.amazonContent.targetAudience?.demographics?.gender?.toLowerCase() || 'general',
+              productHighlights: post.amazonContent.targetAudience?.interests || []
+            },
+            productASINs: post.amazonContent.productAsins || []
+          })
+        };
+
         const platformResult = await PlatformPostingService.postToPlatform(
           session,
           platform as SocialPlatform,
-          {
-            text: platformSpecificText,
-            media,
-            hashtags: postContent.hashtags,
-            mentions: postContent.mentions
-          }
+          postingContent
         );
 
         if (platformResult.success) {

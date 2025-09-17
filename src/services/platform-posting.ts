@@ -14,6 +14,44 @@ export interface PlatformConnection {
   accessTokenSecret?: string // For Twitter OAuth 1.0a (if needed)
 }
 
+export interface PostContent {
+  text?: string
+  media?: Array<{
+    id: string
+    url: string
+    type: 'image' | 'video'
+    altText?: string
+  }>
+  hashtags?: string[]
+  mentions?: string[]
+  // Amazon-specific content
+  brandContent?: {
+    brandName: string
+    headline?: string
+    targetAudience?: string
+    productHighlights?: string[]
+  }
+  productASINs?: string[]
+  // TikTok-specific content
+  tiktokContent?: {
+    advertiserId: string
+    videoProperties?: {
+      title?: string
+      description?: string
+      tags?: string[]
+      category?: string
+      language?: string
+      thumbnailTime?: number
+    }
+    privacy?: 'PUBLIC' | 'PRIVATE' | 'FOLLOWERS_ONLY'
+    allowComments?: boolean
+    allowDuet?: boolean
+    allowStitch?: boolean
+    brandedContent?: boolean
+    promotionalContent?: boolean
+  }
+}
+
 export class PlatformPostingService {
   /**
    * Get all connected platforms from session
@@ -64,6 +102,34 @@ export class PlatformPostingService {
       })
     }
 
+    if (session.connectedPlatforms?.amazon) {
+      const amazon = session.connectedPlatforms.amazon
+      connections.push({
+        platform: "amazon",
+        connected: true,
+        accessToken: amazon.account_tokens.access_token,
+        refreshToken: amazon.account_tokens.refresh_token,
+        expiresAt: new Date(amazon.account_tokens.expires_at),
+        username: amazon.account.username,
+        userId: amazon.account.userId,
+        accountName: amazon.account.username
+      })
+    }
+
+    if (session.connectedPlatforms?.tiktok) {
+      const tiktok = session.connectedPlatforms.tiktok
+      connections.push({
+        platform: "tiktok",
+        connected: true,
+        accessToken: tiktok.account_tokens.access_token,
+        refreshToken: tiktok.account_tokens.refresh_token,
+        expiresAt: new Date(tiktok.account_tokens.expires_at),
+        username: tiktok.account.username,
+        userId: tiktok.account.userId,
+        accountName: tiktok.account.username
+      })
+    }
+
     return connections
   }
 
@@ -89,16 +155,7 @@ export class PlatformPostingService {
   static async postToPlatform(
     session: AuthSession,
     platform: SocialPlatform,
-    content: {
-      text?: string
-      media?: Array<{
-        id: string
-        url: string
-        type: 'image' | 'video'
-      }>
-      hashtags?: string[]
-      mentions?: string[]
-    }
+    content: PostContent
   ): Promise<{
     success: boolean
     platformPostId?: string
@@ -122,6 +179,10 @@ export class PlatformPostingService {
           return await this.postToInstagram(connection, content)
         case "twitter":
           return await this.postToTwitter(connection, content)
+        case "amazon":
+          return await this.postToAmazon(connection, content)
+        case "tiktok":
+          return await this.postToTikTok(connection, content)
         default:
           return {
             success: false,
@@ -489,6 +550,248 @@ export class PlatformPostingService {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to publish Instagram media'
       };
+    }
+  }
+
+  /**
+   * Post to Amazon using connection data and SP-API
+   */
+  private static async postToAmazon(
+    connection: PlatformConnection,
+    content: PostContent
+  ) {
+    const { accessToken, userId } = connection;
+
+    try {
+      // Import Amazon posting client and types
+      const { AmazonPostingClient } = await import('./amazon-posting-client');
+      const { AMAZON_MARKETPLACES } = await import('./amazon-posting-client');
+
+      // Initialize client with connection credentials
+      const amazonClient = new AmazonPostingClient({
+        region: 'NA',
+        marketplaceId: 'ATVPDKIKX0DER', // US marketplace by default
+        refreshToken: connection.refreshToken || '',
+        clientId: process.env.AMAZON_CLIENT_ID || '',
+        clientSecret: process.env.AMAZON_CLIENT_SECRET || '',
+        sellerId: userId || '',
+        roleArn: process.env.AMAZON_ROLE_ARN || '',
+        accessKeyId: process.env.AMAZON_ACCESS_KEY_ID || '',
+        secretAccessKey: process.env.AMAZON_SECRET_ACCESS_KEY || ''
+      });
+
+      // Validate required Amazon-specific content
+      if (!content.brandContent) {
+        return {
+          success: false,
+          error: 'Amazon posts require brand content information'
+        };
+      }
+
+      if (!content.productASINs || content.productASINs.length === 0) {
+        return {
+          success: false,
+          error: 'Amazon posts require at least one product ASIN'
+        };
+      }
+
+      // Get product details for ASINs
+      const products = [];
+      for (const asin of content.productASINs.slice(0, 5)) { // Max 5 products
+        try {
+          const productDetails = await amazonClient.getProductByAsin(asin);
+          products.push(productDetails);
+        } catch (error) {
+          console.warn(`Failed to get details for ASIN ${asin}:`, error);
+          // Continue with basic product info
+          products.push({
+            asin,
+            title: `Product ${asin}`,
+            brand: content.brandContent.brandName,
+            category: 'Unknown',
+            imageUrl: undefined,
+            price: { amount: 0, currency: 'USD' },
+            availability: 'UNKNOWN' as const
+          });
+        }
+      }
+
+      // Prepare Amazon media assets
+      const mediaAssets = content.media?.map((media) => ({
+        assetId: `asset_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        mediaType: media.type.toUpperCase() as 'IMAGE' | 'VIDEO',
+        url: media.url,
+        fileName: `media_${Date.now()}.${media.type === 'video' ? 'mp4' : 'jpg'}`,
+        fileSize: 0, // Would be calculated in real implementation
+        dimensions: { width: 1080, height: 1080 }, // Default dimensions
+        mimeType: media.type === 'video' ? 'video/mp4' : 'image/jpeg',
+        status: 'READY' as const
+      })) || [];
+
+      // Prepare Amazon post content according to the schema
+      const amazonPost = {
+        headline: content.brandContent.headline || content.text?.substring(0, 80) || 'Check out our products',
+        bodyText: content.text?.substring(0, 500) || '',
+        callToAction: 'SHOP_NOW' as const,
+        products,
+        targetMarketplace: {
+          id: 'ATVPDKIKX0DER',
+          name: 'Amazon.com',
+          countryCode: 'US',
+          currency: 'USD',
+          domain: 'https://www.amazon.com'
+        },
+        brandContent: {
+          brandEntityId: content.brandContent.brandName, // This would be the actual entity ID in production
+          brandName: content.brandContent.brandName,
+          brandStoryTitle: content.brandContent.headline || 'Our Brand Story',
+          brandStoryContent: content.text?.substring(0, 300) || 'Discover our amazing products.',
+          brandLogoUrl: undefined,
+          brandDescription: content.text?.substring(0, 500),
+          brandWebsiteUrl: undefined,
+          brandValues: content.brandContent.productHighlights?.slice(0, 5) || []
+        },
+        tags: content.hashtags?.slice(0, 10) || []
+      };
+
+      // Create Amazon post
+      const result = await amazonClient.createPost(amazonPost, mediaAssets);
+
+      if (result.postId) {
+        // Submit for publishing
+        const publishResult = await amazonClient.submitPost(result.postId);
+
+        if (publishResult.success) {
+          return {
+            success: true,
+            platformPostId: result.postId,
+            url: `https://www.amazon.com/brand-store/post/${result.postId}` // Simulated URL
+          };
+        } else {
+          return {
+            success: false,
+            error: 'Failed to publish Amazon post'
+          };
+        }
+      } else {
+        return {
+          success: false,
+          error: 'Failed to create Amazon post'
+        };
+      }
+
+    } catch (error) {
+      console.error("Error posting to Amazon:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to post to Amazon'
+      };
+    }
+  }
+
+  /**
+   * Post to TikTok using connection data
+   */
+  private static async postToTikTok(
+    connection: PlatformConnection,
+    content: PostContent
+  ) {
+    try {
+      // Import TikTok posting client
+      const { default: TikTokPostingClient } = await import('./tiktok-posting-client')
+
+      const tiktokClient = new TikTokPostingClient()
+
+      // Set authentication
+      tiktokClient.setAuth({
+        accessToken: connection.accessToken,
+        refreshToken: connection.refreshToken,
+        expiresAt: connection.expiresAt,
+        advertiserId: content.tiktokContent?.advertiserId || connection.userId || ''
+      })
+
+      // TikTok requires video content
+      if (!content.media || content.media.length === 0) {
+        return {
+          success: false,
+          error: 'TikTok posts require video content'
+        }
+      }
+
+      const videoMedia = content.media.find(m => m.type === 'video')
+      if (!videoMedia) {
+        return {
+          success: false,
+          error: 'TikTok posts require video content'
+        }
+      }
+
+      // Fetch video file from URL (in a real implementation, this would be handled differently)
+      let videoFile: Buffer
+      try {
+        const response = await fetch(videoMedia.url)
+        if (!response.ok) {
+          throw new Error(`Failed to fetch video: ${response.status}`)
+        }
+        const arrayBuffer = await response.arrayBuffer()
+        videoFile = Buffer.from(arrayBuffer)
+      } catch (fetchError) {
+        return {
+          success: false,
+          error: 'Failed to fetch video file for upload'
+        }
+      }
+
+      // Prepare TikTok post content
+      const tiktokPostContent = {
+        videoId: '', // Will be set after upload
+        caption: content.text || '',
+        hashtags: content.hashtags || [],
+        mentions: content.mentions || [],
+        privacy: content.tiktokContent?.privacy || 'PUBLIC' as const,
+        allowComments: content.tiktokContent?.allowComments ?? true,
+        allowDuet: content.tiktokContent?.allowDuet ?? true,
+        allowStitch: content.tiktokContent?.allowStitch ?? true,
+        brandedContent: content.tiktokContent?.brandedContent ?? false,
+        promotionalContent: content.tiktokContent?.promotionalContent ?? false
+      }
+
+      // Upload and publish video
+      const videoProperties = content.tiktokContent?.videoProperties ? {
+        title: content.tiktokContent.videoProperties.title,
+        description: content.tiktokContent.videoProperties.description,
+        tags: content.tiktokContent.videoProperties.tags,
+        category: content.tiktokContent.videoProperties.category as any, // Type assertion for enum
+        language: content.tiktokContent.videoProperties.language || 'en',
+        thumbnailTime: content.tiktokContent.videoProperties.thumbnailTime
+      } : undefined
+
+      const result = await tiktokClient.createPost(
+        videoFile,
+        videoMedia.url.split('/').pop() || 'video.mp4',
+        tiktokPostContent,
+        videoProperties
+      )
+
+      if (result.postId) {
+        return {
+          success: true,
+          platformPostId: result.postId,
+          url: result.videoUrl || `https://www.tiktok.com/@user/video/${result.videoId}`
+        }
+      } else {
+        return {
+          success: false,
+          error: 'Failed to create TikTok post'
+        }
+      }
+
+    } catch (error) {
+      console.error("Error posting to TikTok:", error)
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to post to TikTok'
+      }
     }
   }
 }

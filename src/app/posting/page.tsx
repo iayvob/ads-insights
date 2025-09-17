@@ -29,6 +29,8 @@ import { PostScheduler } from '@/components/posting/post-scheduler';
 import { PostPreview } from '@/components/posting/post-preview';
 import { PremiumGate } from '@/components/posting/premium-gate';
 import { AIEnhancementPanel } from '@/components/posting/ai-enhancement-panel';
+import { AmazonContentEditor } from '@/components/posting/amazon-content-editor';
+import { TikTokContentEditor } from '@/components/posting/tiktok-content-editor';
 import { usePosting } from '@/hooks/use-posting';
 import { SocialPlatform } from '@/validations/posting-types';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -60,6 +62,37 @@ export default function PostingPage() {
   const [hashtags, setHashtags] = useState<string[]>([]);
   const [currentHashtag, setCurrentHashtag] = useState('');
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
+
+  // Amazon-specific state
+  const [amazonBrandContent, setAmazonBrandContent] = useState({
+    brandName: '',
+    headline: undefined as string | undefined,
+    targetAudience: 'general' as string | undefined,
+    productHighlights: [] as string[] | undefined,
+  });
+  const [amazonProductASINs, setAmazonProductASINs] = useState<string[]>([]);
+
+  // TikTok-specific state
+  const [tiktokContent, setTikTokContent] = useState({
+    advertiserId: '',
+    videoProperties: {
+      title: '',
+      description: '',
+      tags: [] as string[],
+      category: undefined as string | undefined,
+      language: 'en',
+      thumbnailTime: undefined as number | undefined,
+    },
+    privacy: 'PUBLIC' as 'PUBLIC' | 'PRIVATE' | 'FOLLOWERS_ONLY',
+    allowComments: true,
+    allowDuet: true,
+    allowStitch: true,
+    brandedContent: false,
+    promotionalContent: false,
+  });
+  const [selectedTikTokVideo, setSelectedTikTokVideo] = useState<File | null>(
+    null
+  );
 
   // Determine disabled states
   const isPublishing = isPosting || isUploading;
@@ -103,10 +136,78 @@ export default function PostingPage() {
           'Instagram requires at least one media file (image/video)',
         ]);
       }
+
+      // Add Amazon validation for brand content and ASINs
+      if (selectedPlatforms.includes('amazon')) {
+        const amazonErrors: string[] = [];
+
+        if (!amazonBrandContent.brandName.trim()) {
+          amazonErrors.push('Amazon posts require a brand name');
+        }
+
+        if (amazonProductASINs.length === 0) {
+          amazonErrors.push('Amazon posts require at least one product ASIN');
+        }
+
+        if (amazonErrors.length > 0) {
+          setValidationErrors((prev) => [...prev, ...amazonErrors]);
+        }
+      }
+
+      // Add TikTok validation for video content and advertiser ID
+      if (selectedPlatforms.includes('tiktok')) {
+        const tiktokErrors: string[] = [];
+
+        if (!tiktokContent.advertiserId.trim()) {
+          tiktokErrors.push('TikTok posts require an advertiser ID');
+        }
+
+        if (!selectedTikTokVideo) {
+          tiktokErrors.push('TikTok posts require a video file');
+        }
+
+        // Validate video if selected
+        if (selectedTikTokVideo) {
+          const videoErrors = validateTikTokVideo(selectedTikTokVideo);
+          tiktokErrors.push(...videoErrors);
+        }
+
+        if (tiktokErrors.length > 0) {
+          setValidationErrors((prev) => [...prev, ...tiktokErrors]);
+        }
+      }
     } else {
       setValidationErrors([]);
     }
-  }, [postContent, selectedPlatforms, validateContent, uploadedMedia.length]);
+  }, [
+    postContent,
+    selectedPlatforms,
+    validateContent,
+    uploadedMedia.length,
+    amazonBrandContent,
+    amazonProductASINs,
+    tiktokContent,
+    selectedTikTokVideo,
+  ]);
+
+  const validateTikTokVideo = (file: File): string[] => {
+    const errors: string[] = [];
+
+    // File size validation (500MB max)
+    if (file.size > 500 * 1024 * 1024) {
+      errors.push('TikTok video file size exceeds 500MB limit');
+    }
+
+    // File type validation
+    const allowedTypes = ['video/mp4', 'video/quicktime', 'video/webm'];
+    if (!allowedTypes.includes(file.type)) {
+      errors.push(
+        `Unsupported video format. Allowed: ${allowedTypes.join(', ')}`
+      );
+    }
+
+    return errors;
+  };
 
   const handleAddHashtag = () => {
     if (currentHashtag.trim() && !hashtags.includes(currentHashtag.trim())) {
@@ -144,6 +245,20 @@ export default function PostingPage() {
     } catch (error) {
       console.error('Media upload failed:', error);
     }
+  };
+
+  const handleAmazonBrandContentChange = (content: {
+    brandName: string;
+    headline?: string;
+    targetAudience?: string;
+    productHighlights?: string[];
+  }) => {
+    setAmazonBrandContent({
+      brandName: content.brandName,
+      headline: content.headline,
+      targetAudience: content.targetAudience,
+      productHighlights: content.productHighlights,
+    });
   };
 
   const handleRemoveMedia = async (mediaId: string) => {
@@ -242,6 +357,25 @@ export default function PostingPage() {
               }
             : undefined,
         isDraft,
+        // Amazon-specific content in separate field as per schema
+        ...(selectedPlatforms.includes('amazon') && {
+          amazon: {
+            brandEntityId: amazonBrandContent.brandName, // Using brandName as entity ID for now
+            marketplaceId: 'ATVPDKIKX0DER',
+            productAsins: amazonProductASINs,
+            brandStoryTitle: amazonBrandContent.headline || 'Our Brand Story',
+            brandStoryContent:
+              postContent.substring(0, 300) || 'Discover our amazing products.',
+            callToAction: 'SHOP_NOW' as const,
+            targetAudience: {
+              interests: amazonBrandContent.productHighlights || [],
+              demographics: {
+                ageRange: undefined,
+                gender: 'ALL' as const,
+              },
+            },
+          },
+        }),
       };
 
       await createPost(postData);
@@ -253,6 +387,13 @@ export default function PostingPage() {
       setHashtags([]);
       setIsScheduled(false);
       setScheduledDate(null);
+      setAmazonBrandContent({
+        brandName: '',
+        headline: undefined,
+        targetAudience: 'general',
+        productHighlights: [],
+      });
+      setAmazonProductASINs([]);
     } catch (error) {
       console.error('Publishing failed:', error);
     }
@@ -487,6 +628,37 @@ export default function PostingPage() {
                 onPlatformsChange={setSelectedPlatforms}
               />
             </motion.div>
+
+            {/* Amazon Content Editor */}
+            <motion.div
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: 0.5 }}
+            >
+              <AmazonContentEditor
+                selectedPlatforms={selectedPlatforms}
+                brandContent={amazonBrandContent}
+                productASINs={amazonProductASINs}
+                onBrandContentChange={handleAmazonBrandContentChange}
+                onProductASINsChange={setAmazonProductASINs}
+              />
+            </motion.div>
+
+            {/* TikTok Content Editor */}
+            {selectedPlatforms.includes('tiktok') && (
+              <motion.div
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.6 }}
+              >
+                <TikTokContentEditor
+                  content={tiktokContent}
+                  selectedVideo={selectedTikTokVideo || undefined}
+                  onContentChange={setTikTokContent}
+                  onVideoSelect={setSelectedTikTokVideo}
+                />
+              </motion.div>
+            )}
           </div>
 
           {/* Sidebar */}
@@ -502,6 +674,13 @@ export default function PostingPage() {
                 hashtags={hashtags}
                 mediaFiles={mediaFiles}
                 platforms={selectedPlatforms}
+                amazonContent={{
+                  brandName: amazonBrandContent.brandName,
+                  headline: amazonBrandContent.headline,
+                  productASINs: amazonProductASINs,
+                }}
+                tiktokContent={tiktokContent}
+                selectedTikTokVideo={selectedTikTokVideo}
               />
             </motion.div>
 

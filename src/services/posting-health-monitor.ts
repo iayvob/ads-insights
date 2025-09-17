@@ -28,7 +28,9 @@ class PostingHealthMonitor {
     private platformMetrics: Record<SocialPlatform, PlatformHealthMetrics> = {
         facebook: this.createDefaultMetrics(),
         instagram: this.createDefaultMetrics(),
-        twitter: this.createDefaultMetrics()
+        twitter: this.createDefaultMetrics(),
+        amazon: this.createDefaultMetrics(),
+        tiktok: this.createDefaultMetrics()
     };
 
     private errorLog: ErrorRecord[] = [];
@@ -144,7 +146,9 @@ class PostingHealthMonitor {
         this.platformMetrics = {
             facebook: this.createDefaultMetrics(),
             instagram: this.createDefaultMetrics(),
-            twitter: this.createDefaultMetrics()
+            twitter: this.createDefaultMetrics(),
+            amazon: this.createDefaultMetrics(),
+            tiktok: this.createDefaultMetrics()
         };
         this.errorLog = [];
     }

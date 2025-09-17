@@ -15,6 +15,7 @@ import {
   AlertCircle,
   Clock,
   Lock,
+  ShoppingBag,
 } from 'lucide-react';
 import { SocialPlatform } from '@/validations/posting-types';
 import { SubscriptionPlan } from '@prisma/client';
@@ -98,6 +99,23 @@ export function PlatformSelector({
       characterLimit: 280,
       features: ['Images', 'Videos', 'Threads', 'Hashtags'],
       requiresPremium: true, // Twitter requires premium
+    },
+    {
+      id: 'amazon',
+      name: 'Amazon',
+      icon: ShoppingBag,
+      color: 'text-orange-600',
+      bgColor: 'bg-orange-50 border-orange-200',
+      connected: !!session?.connectedPlatforms?.amazon,
+      status:
+        userPlan === 'FREEMIUM'
+          ? 'restricted'
+          : !!session?.connectedPlatforms?.amazon
+            ? 'connected'
+            : 'disconnected',
+      characterLimit: 1000,
+      features: ['Brand Content', 'Product ASINs', 'Images', 'Videos'],
+      requiresPremium: true, // Amazon requires premium
     },
   ];
 
