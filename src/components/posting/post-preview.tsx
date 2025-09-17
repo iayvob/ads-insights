@@ -28,13 +28,13 @@ interface PostPreviewProps {
     productASINs?: string[];
   };
   tiktokContent?: {
-    advertiserID: string;
-    videoProperties: {
-      title: string;
-      privacy: string;
-      allowComment: boolean;
-      allowDuet: boolean;
-      allowStitch: boolean;
+    advertiserId: string;
+    videoProperties?: {
+      title?: string;
+      privacy?: string;
+      allowComment?: boolean;
+      allowDuet?: boolean;
+      allowStitch?: boolean;
     };
   };
   selectedTikTokVideo?: File | null;

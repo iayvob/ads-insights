@@ -19,8 +19,8 @@ export const AMAZON_MEDIA_CONSTRAINTS = {
         maxHeight: 2048,
         minWidth: 400,
         minHeight: 400,
-        allowedTypes: ['image/jpeg', 'image/png', 'image/webp'],
-        allowedExtensions: ['.jpg', '.jpeg', '.png', '.webp'],
+        allowedTypes: ['image/jpeg', 'image/png', 'image/webp'] as const,
+        allowedExtensions: ['.jpg', '.jpeg', '.png', '.webp'] as const,
     },
     video: {
         maxSize: 100 * 1024 * 1024, // 100MB
@@ -29,8 +29,8 @@ export const AMAZON_MEDIA_CONSTRAINTS = {
         minWidth: 640,
         minHeight: 480,
         maxDuration: 60, // 60 seconds
-        allowedTypes: ['video/mp4', 'video/quicktime', 'video/x-msvideo'],
-        allowedExtensions: ['.mp4', '.mov', '.avi'],
+        allowedTypes: ['video/mp4', 'video/quicktime', 'video/x-msvideo'] as const,
+        allowedExtensions: ['.mp4', '.mov', '.avi'] as const,
     },
     brandLogo: {
         maxSize: 2 * 1024 * 1024, // 2MB
@@ -38,8 +38,8 @@ export const AMAZON_MEDIA_CONSTRAINTS = {
         maxHeight: 500,
         minWidth: 100,
         minHeight: 100,
-        allowedTypes: ['image/jpeg', 'image/png'],
-        allowedExtensions: ['.jpg', '.jpeg', '.png'],
+        allowedTypes: ['image/jpeg', 'image/png'] as const,
+        allowedExtensions: ['.jpg', '.jpeg', '.png'] as const,
         aspectRatio: 1, // Square logos preferred
     },
     postImage: {
@@ -48,8 +48,8 @@ export const AMAZON_MEDIA_CONSTRAINTS = {
         maxHeight: 1200,
         minWidth: 400,
         minHeight: 400,
-        allowedTypes: ['image/jpeg', 'image/png', 'image/webp'],
-        allowedExtensions: ['.jpg', '.jpeg', '.png', '.webp'],
+        allowedTypes: ['image/jpeg', 'image/png', 'image/webp'] as const,
+        allowedExtensions: ['.jpg', '.jpeg', '.png', '.webp'] as const,
     }
 } as const
 
@@ -90,13 +90,15 @@ export class AmazonMediaUploadService {
         }
 
         // Check file type
-        if (!constraints.allowedTypes.includes(file.type)) {
+        const allowedTypes = constraints.allowedTypes as readonly string[];
+        if (!allowedTypes.includes(file.type)) {
             errors.push(`File type ${file.type} not supported. Allowed types: ${constraints.allowedTypes.join(', ')}`)
         }
 
         // Check file extension
         const fileExtension = file.name.toLowerCase().substring(file.name.lastIndexOf('.'))
-        if (!constraints.allowedExtensions.includes(fileExtension)) {
+        const allowedExtensions = constraints.allowedExtensions as readonly string[];
+        if (!allowedExtensions.includes(fileExtension)) {
             errors.push(`File extension ${fileExtension} not supported. Allowed extensions: ${constraints.allowedExtensions.join(', ')}`)
         }
 

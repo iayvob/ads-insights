@@ -253,6 +253,7 @@ export function TikTokContentEditor({
                 disabled={disabled}
                 className="hidden"
                 id="tiktok-video-upload"
+                aria-label="Upload TikTok video file"
               />
               <Label
                 htmlFor="tiktok-video-upload"
@@ -320,6 +321,7 @@ export function TikTokContentEditor({
                     disabled={disabled}
                     className="hidden"
                     id="tiktok-video-replace"
+                    aria-label="Replace TikTok video file"
                   />
                   <Label
                     htmlFor="tiktok-video-replace"

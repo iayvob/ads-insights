@@ -652,10 +652,10 @@ export default function PostingPage() {
                 transition={{ delay: 0.6 }}
               >
                 <TikTokContentEditor
-                  content={tiktokContent}
+                  tiktokContent={tiktokContent}
                   selectedVideo={selectedTikTokVideo || undefined}
-                  onContentChange={setTikTokContent}
-                  onVideoSelect={setSelectedTikTokVideo}
+                  onTikTokContentChange={setTikTokContent}
+                  onVideoChange={setSelectedTikTokVideo}
                 />
               </motion.div>
             )}
