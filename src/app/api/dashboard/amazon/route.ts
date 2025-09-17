@@ -30,7 +30,7 @@ interface DashboardOptions {
 
 const handler = async (request: NextRequest) => {
   let userId: string | undefined
-  
+
   try {
     const session = await ServerSessionService.getSession(request)
     if (!session?.userId) {
@@ -41,7 +41,7 @@ const handler = async (request: NextRequest) => {
 
     const body = request.method === "POST" ? await request.json() : {}
     const { searchParams } = new URL(request.url)
-    
+
     // Parse and validate request options
     const rawOptions = {
       includeProducts: body.includeProducts ?? searchParams.get("includeProducts") === "true",
@@ -53,9 +53,9 @@ const handler = async (request: NextRequest) => {
 
     const validationResult = requestSchema.safeParse(rawOptions)
     if (!validationResult.success) {
-      return NextResponse.json({ 
-        error: "Invalid parameters", 
-        details: validationResult.error.errors 
+      return NextResponse.json({
+        error: "Invalid parameters",
+        details: validationResult.error.errors
       }, { status: 400 })
     }
 
@@ -70,10 +70,10 @@ const handler = async (request: NextRequest) => {
       if (userSubscriptionResult.success && userSubscriptionResult.subscription) {
         const subscription = userSubscriptionResult.subscription
         // Use planId to determine if it's premium (not 'basic')
-        hasAdsAccess = Boolean(subscription.planId && 
-                              subscription.planId !== "basic" && 
-                              subscription.status === "ACTIVE")
-        
+        hasAdsAccess = Boolean(subscription.planId &&
+          subscription.planId !== "basic" &&
+          subscription.status === "ACTIVE")
+
         // Determine user plan type
         if (subscription.planId && subscription.planId !== "basic") {
           userPlanType = 'premium'
@@ -82,24 +82,24 @@ const handler = async (request: NextRequest) => {
     } catch (error) {
       logger.warn("Could not verify subscription status", { userId: session.userId, error })
     }
-    
+
     // Determine analytics access based on subscription
     // const hasAdsAccess = userPlan !== SubscriptionPlan.FREEMIUM
-    
+
     // Validate analytics type request against subscription
     if (options.analyticsType === 'ads' && !hasAdsAccess) {
-      logger.warn("Freemium user attempted to access ads analytics", { 
+      logger.warn("Freemium user attempted to access ads analytics", {
         userId: session.userId,
         requestedType: options.analyticsType,
-        userPlanType 
+        userPlanType
       })
-      
+
       // Gracefully fallback to posts analytics for freemium users
       options.analyticsType = 'posts'
     }
 
-    logger.info("Amazon analytics request", { 
-      userId: session.userId, 
+    logger.info("Amazon analytics request", {
+      userId: session.userId,
       hasAdsAccess,
       analyticsType: options.analyticsType,
       userPlanType
@@ -129,24 +129,121 @@ const handler = async (request: NextRequest) => {
       // Fetch real data from Amazon API
       const profileResult = await AmazonApiClient.getProfile(amazonProvider.accessToken, amazonProvider.providerId)
 
-      const [campaigns, products, reports] = await Promise.allSettled([
-        AmazonApiClient.getCampaigns(amazonProvider.accessToken, profileResult.profileId),
-        options.includeProducts
-          ? AmazonApiClient.getProductPerformance(amazonProvider.accessToken, profileResult.profileId)
-          : Promise.resolve([]),
-        options.includeReports
-          ? AmazonApiClient.getProductPerformance(amazonProvider.accessToken, profileResult.profileId)
-          : Promise.resolve([]),
-      ])
+      // Fetch data based on analytics type
+      const dataFetchers = []
+
+      // Always fetch basic data
+      if (options.analyticsType === 'ads' || options.analyticsType === 'both') {
+        dataFetchers.push(
+          AmazonApiClient.getCampaigns(amazonProvider.accessToken, profileResult.profileId),
+          // Add comprehensive ads analytics fetching
+          AmazonApiClient.fetchAdsAnalytics(amazonProvider.accessToken, profileResult.profileId)
+        )
+      }
+
+      if (options.includeProducts) {
+        dataFetchers.push(
+          AmazonApiClient.getProductPerformance(amazonProvider.accessToken, profileResult.profileId)
+        )
+      }
+
+      if (options.includeReports) {
+        dataFetchers.push(
+          AmazonApiClient.getProductPerformance(amazonProvider.accessToken, profileResult.profileId)
+        )
+      }
+
+      // Fetch posts analytics if requested (available to all users)
+      if (options.analyticsType === 'posts' || options.analyticsType === 'both') {
+        dataFetchers.push(
+          AmazonApiClient.fetchPostsAnalytics(amazonProvider.accessToken, profileResult.profileId)
+        )
+      }
+
+      const results = await Promise.allSettled(dataFetchers)
+
+      // Map results based on what was fetched
+      let resultIndex = 0
+      const campaigns = (options.analyticsType === 'ads' || options.analyticsType === 'both')
+        ? (results[resultIndex] && results[resultIndex].status === "fulfilled" ? (results[resultIndex] as PromiseFulfilledResult<any>).value : [])
+        : []
+      if (options.analyticsType === 'ads' || options.analyticsType === 'both') resultIndex++
+
+      const adsAnalytics = (options.analyticsType === 'ads' || options.analyticsType === 'both')
+        ? (results[resultIndex] && results[resultIndex].status === "fulfilled" ? (results[resultIndex] as PromiseFulfilledResult<any>).value : null)
+        : null
+      if (options.analyticsType === 'ads' || options.analyticsType === 'both') resultIndex++
+
+      const products = options.includeProducts
+        ? (results[resultIndex] && results[resultIndex].status === "fulfilled" ? (results[resultIndex] as PromiseFulfilledResult<any>).value : [])
+        : []
+      if (options.includeProducts) resultIndex++
+
+      const reports = options.includeReports
+        ? (results[resultIndex] && results[resultIndex].status === "fulfilled" ? (results[resultIndex] as PromiseFulfilledResult<any>).value : [])
+        : []
+      if (options.includeReports) resultIndex++
+
+      const postsAnalytics = (options.analyticsType === 'posts' || options.analyticsType === 'both')
+        ? (results[resultIndex] && results[resultIndex].status === "fulfilled" ? (results[resultIndex] as PromiseFulfilledResult<any>).value : null)
+        : null
 
       // Process results and handle failures gracefully
       amazonData = {
         profileData: profileResult,
-        campaigns: campaigns.status === "fulfilled" ? campaigns.value : [],
-        products: products.status === "fulfilled" ? products.value : [],
-        reports: reports.status === "fulfilled" ? reports.value : [],
+        campaigns,
+        products,
+        reports,
+        postsAnalytics, // Add posts analytics to response
+        adsAnalytics, // Add comprehensive ads analytics to response
         lastUpdated: new Date().toISOString(),
         dataSource: "api",
+        analyticsType: options.analyticsType,
+        hasAdsAccess
+      }
+
+      // Check for no-ads-history scenario
+      if (hasAdsAccess && (options.analyticsType === 'ads' || options.analyticsType === 'both')) {
+        const hasNoCampaigns = !campaigns || campaigns.length === 0
+        const hasNoAdsData = !adsAnalytics || (
+          adsAnalytics.totalSpend === 0 &&
+          adsAnalytics.totalImpressions === 0 &&
+          adsAnalytics.totalClicks === 0
+        )
+
+        if (hasNoCampaigns && hasNoAdsData) {
+          amazonData.noAdsHistory = true
+          amazonData.noAdsHistoryMessage = "No advertising history found. Start your first Amazon advertising campaign to see detailed insights here."
+          amazonData.noAdsHistoryActions = [
+            {
+              title: "Create Your First Campaign",
+              description: "Launch a Sponsored Products campaign to promote your best-selling items",
+              action: "create_campaign",
+              url: "https://advertising.amazon.com/",
+              priority: "high"
+            },
+            {
+              title: "Learn Amazon Advertising",
+              description: "Understand the basics of Amazon PPC and advertising strategies",
+              action: "learn_more",
+              url: "https://advertising.amazon.com/learn",
+              priority: "medium"
+            },
+            {
+              title: "Contact Support",
+              description: "Get help setting up your first advertising campaign",
+              action: "contact_support",
+              priority: "low"
+            }
+          ]
+
+          logger.info("No ads history detected for user", {
+            userId: session.userId,
+            hasNoCampaigns,
+            hasNoAdsData,
+            analyticsType: options.analyticsType
+          })
+        }
       }
 
       // If critical data failed to load, use mock data
@@ -170,13 +267,36 @@ const handler = async (request: NextRequest) => {
         hasAdsAccess,
         analyticsType: options.analyticsType
       })
-      amazonData = {
-        ...mockData,
-        lastUpdated: new Date().toISOString(),
-        dataSource: "mock",
+
+      // Generate mock posts analytics if requested
+      let mockPostsAnalytics = null
+      if (options.analyticsType === 'posts' || options.analyticsType === 'both') {
+        mockPostsAnalytics = AmazonApiClient.generateMockAmazonPostsAnalytics()
       }
 
-      logger.info("Using Amazon mock data", { userId: session.userId })
+      // Generate mock ads analytics if requested and user has access
+      let mockAdsAnalytics = null
+      if ((options.analyticsType === 'ads' || options.analyticsType === 'both') && hasAdsAccess) {
+        mockAdsAnalytics = AmazonApiClient.generateMockAmazonAdsAnalytics()
+      }
+
+      amazonData = {
+        ...mockData,
+        postsAnalytics: mockPostsAnalytics,
+        adsAnalytics: mockAdsAnalytics,
+        lastUpdated: new Date().toISOString(),
+        dataSource: "mock",
+        analyticsType: options.analyticsType,
+        hasAdsAccess
+      }
+
+      logger.info("Using Amazon mock data", {
+        userId: session.userId,
+        analyticsType: options.analyticsType,
+        includesPostsAnalytics: Boolean(mockPostsAnalytics),
+        includesAdsAnalytics: Boolean(mockAdsAnalytics),
+        hasAdsAccess
+      })
     }
 
     // Calculate additional metrics
@@ -245,6 +365,10 @@ const handler = async (request: NextRequest) => {
       profileId: amazonData.profileData?.profileId,
       campaignsCount: amazonData.campaigns?.length || 0,
       productsCount: amazonData.products?.length || 0,
+      analyticsType: amazonData.analyticsType,
+      hasPostsAnalytics: Boolean(amazonData.postsAnalytics),
+      hasAdsAnalytics: Boolean(amazonData.adsAnalytics),
+      hasAdsAccess: amazonData.hasAdsAccess
     })
 
     return NextResponse.json(amazonData)
@@ -260,10 +384,17 @@ const handler = async (request: NextRequest) => {
       hasAdsAccess: false,
       analyticsType: 'posts'
     })
+
+    const mockPostsAnalytics = AmazonApiClient.generateMockAmazonPostsAnalytics()
+
     return NextResponse.json({
       ...mockData,
+      postsAnalytics: mockPostsAnalytics,
+      adsAnalytics: null, // No ads analytics for error fallback
       lastUpdated: new Date().toISOString(),
       dataSource: "mock",
+      analyticsType: 'posts',
+      hasAdsAccess: false,
       error: "Failed to fetch real data, showing sample data",
     })
   }

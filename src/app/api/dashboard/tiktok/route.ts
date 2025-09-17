@@ -48,36 +48,56 @@ export async function GET(request: NextRequest) {
         data: null
       }, { status: 400 })
     }
-    const tiktokData = await TikTokApiClient.fetchData(tiktokProvider.accessToken)
 
-    // For premium users, also fetch ads data
-    let adsData = null
+    // Fetch basic TikTok data and comprehensive posts analytics
+    const [tiktokData, postsAnalytics] = await Promise.all([
+      TikTokApiClient.fetchData(tiktokProvider.accessToken),
+      TikTokApiClient.fetchPostsAnalytics(tiktokProvider.accessToken)
+    ])
+
+    // For premium users, also fetch comprehensive ads analytics
+    let adsAnalytics = null
     const userPlan = await getUserPlan(session.userId)
     // Try known advertiser id fields; cast to any to avoid strict typing issues and fall back to providerId
     const advertiserId = (tiktokProvider as any)?.advertiser_id ?? (tiktokProvider as any)?.advertiserId ?? tiktokProvider.providerId
     if (userPlan === 'premium' && advertiserId) {
       try {
-        adsData = await TikTokApiClient.fetchAdsData(
+        adsAnalytics = await TikTokApiClient.fetchAdsAnalytics(
           tiktokProvider.accessToken,
           advertiserId
         )
+        logger.info("TikTok ads analytics fetched successfully", {
+          userId: session.userId,
+          totalSpend: adsAnalytics.totalSpend,
+          totalImpressions: adsAnalytics.totalImpressions,
+          campaignsCount: adsAnalytics.campaignPerformance.length
+        })
       } catch (error) {
-        logger.warn("Failed to fetch TikTok ads data", { error, userId: session.userId })
-        // Continue without ads data
+        logger.warn("Failed to fetch TikTok ads analytics", { error, userId: session.userId })
+        // Continue without ads analytics - provide proper "no ads history" message
+        adsAnalytics = {
+          error: "No ads history available",
+          message: "Either no ad campaigns are running or advertiser access is required",
+          hasAdvertiserAccess: false
+        }
       }
     }
 
-    // Combine data
+    // Combine all data including comprehensive posts analytics
     const completeData = {
       ...tiktokData,
-      ads_insights: adsData
+      posts_analytics: postsAnalytics, // Comprehensive posts analytics for all users
+      ads_analytics: adsAnalytics       // Premium-only ads analytics
     }
 
     logger.info("TikTok dashboard data fetched successfully", {
       userId: session.userId,
       videosCount: tiktokData.videos.length,
       photosCount: tiktokData.photos.length,
-      hasAdsData: !!adsData
+      hasPostsAnalytics: !!postsAnalytics,
+      postsEngagementRate: postsAnalytics?.engagementRate,
+      totalPosts: postsAnalytics?.totalPosts,
+      hasAdsAnalytics: !!adsAnalytics && !('error' in adsAnalytics)
     })
 
     return NextResponse.json({
@@ -86,7 +106,7 @@ export async function GET(request: NextRequest) {
     })
 
   } catch (error) {
-    logger.error("Failed to fetch TikTok dashboard data", { 
+    logger.error("Failed to fetch TikTok dashboard data", {
       error: error instanceof Error ? error.message : 'Unknown error',
       stack: error instanceof Error ? error.stack : undefined
     })
@@ -129,7 +149,7 @@ export async function POST(request: NextRequest) {
 
     // Force refresh by calling GET endpoint
     const refreshedData = await GET(request)
-    
+
     // Update last refresh time
     await updateLastRefreshTime(session.userId, 'tiktok', now)
 
@@ -151,8 +171,8 @@ async function getUserPlan(userId: string): Promise<'free' | 'premium'> {
     // This would check user's subscription plan from database
     // For now, return based on mock logic
     const user = await UserService.getUserById(userId)
-    return user?.plan === 'PREMIUM_MONTHLY' || user?.plan === 'PREMIUM_YEARLY' 
-      ? 'premium' 
+    return user?.plan === 'PREMIUM_MONTHLY' || user?.plan === 'PREMIUM_YEARLY'
+      ? 'premium'
       : 'free'
   } catch (error) {
     logger.warn("Failed to get user plan, defaulting to free", { error, userId })
