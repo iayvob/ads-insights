@@ -5,42 +5,21 @@ import { platformRateLimit, handlePlatformError } from "@/config/middleware/plat
 import { TikTokApiClient } from "@/services/api-clients/tiktok-client"
 import { UserService } from "@/services/user"
 import { logger } from "@/config/logger"
-
-// TikTok content validation limits based on official documentation
-const TIKTOK_LIMITS = {
-  TITLE_MAX_LENGTH: 150, // TikTok title/caption limit
-  DESCRIPTION_MAX_LENGTH: 2200, // TikTok description limit
-  MAX_HASHTAGS: 100, // TikTok allows many hashtags but recommend moderation
-  MAX_VIDEO_DURATION_SEC: 600, // 10 minutes max for most accounts
-  MAX_PHOTO_COUNT: 35, // Maximum photos in a carousel
-  MAX_VIDEO_SIZE_MB: 287, // ~287MB max video size
-  MAX_PHOTO_SIZE_MB: 50, // 50MB max photo size
-  SUPPORTED_VIDEO_FORMATS: ['mp4', 'mov', 'mpeg', 'flv', 'webm', '3gp'],
-  SUPPORTED_PHOTO_FORMATS: ['jpeg', 'jpg', 'gif', 'tiff', 'bmp', 'webp'],
-}
+import {
+  validateTikTokContent,
+  formatTikTokContent,
+  handleTikTokError,
+  getTikTokErrorMessage,
+  TIKTOK_LIMITS,
+  type TikTokContent,
+  type TikTokMediaAsset
+} from "./helpers"
 
 interface TikTokPostRequest {
-  content: {
-    text: string
-    hashtags?: string[]
-    mentions?: string[]
-    link?: string
-  }
-  media?: Array<{
-    id: string
-    url: string
-    type: 'image' | 'video'
-    mimeType: string
-    size: number
-    alt?: string
-    duration?: number // For videos
-    dimensions?: {
-      width: number
-      height: number
-    }
-  }>
+  content: TikTokContent
+  media?: TikTokMediaAsset[]
   postType: 'video' | 'photo'
-  privacy?: 'PUBLIC_TO_EVERYONE' | 'MUTUAL_FOLLOW_FRIENDS' | 'SELF_ONLY'
+  privacy?: 'PUBLIC' | 'PRIVATE' | 'FOLLOWERS_ONLY'
   settings?: {
     disableComment?: boolean
     disableDuet?: boolean
@@ -75,7 +54,7 @@ export async function POST(request: NextRequest) {
 
     // Apply rate limiting
     const rateLimitResult = platformRateLimit('tiktok', session.userId, request)
-    
+
     if (!rateLimitResult.success) {
       return NextResponse.json(
         {
@@ -85,7 +64,7 @@ export async function POST(request: NextRequest) {
           limit: rateLimitResult.limit,
           remaining: rateLimitResult.remaining
         },
-        { 
+        {
           status: 429,
           headers: {
             'X-RateLimit-Limit': rateLimitResult.limit.toString(),
@@ -99,12 +78,12 @@ export async function POST(request: NextRequest) {
 
     // Parse request body
     const body: TikTokPostRequest = await request.json()
-    
-    // Validate request
-    const validation = validateTikTokPost(body)
-    if (!validation.valid) {
+
+    // Validate request using helpers
+    const validation = validateTikTokContent(body.content, body.media)
+    if (!validation.isValid) {
       return NextResponse.json(
-        { success: false, error: validation.error },
+        { success: false, error: validation.errors.join('; ') },
         { status: 400 }
       )
     }
@@ -120,13 +99,20 @@ export async function POST(request: NextRequest) {
 
     // Check creator info before posting
     const creatorInfo = await TikTokApiClient.getCreatorInfo(connection.accessToken!)
-    
-    // Validate privacy level is supported
-    if (body.privacy && !creatorInfo.privacy_level_options.includes(body.privacy)) {
+
+    // Validate privacy level is supported (convert from our format to TikTok format)
+    const privacyMap = {
+      'PUBLIC': 'PUBLIC_TO_EVERYONE',
+      'PRIVATE': 'SELF_ONLY',
+      'FOLLOWERS_ONLY': 'MUTUAL_FOLLOW_FRIENDS'
+    }
+
+    const tiktokPrivacy = body.privacy ? privacyMap[body.privacy] : 'PUBLIC_TO_EVERYONE'
+    if (body.privacy && !creatorInfo.privacy_level_options.includes(tiktokPrivacy)) {
       return NextResponse.json(
-        { 
-          success: false, 
-          error: `Privacy level ${body.privacy} not supported. Available options: ${creatorInfo.privacy_level_options.join(', ')}` 
+        {
+          success: false,
+          error: `Privacy level ${body.privacy} not supported. Available options: ${creatorInfo.privacy_level_options.join(', ')}`
         },
         { status: 400 }
       )
@@ -137,24 +123,24 @@ export async function POST(request: NextRequest) {
     if (body.postType === 'video' && body.media && body.media.length > 0) {
       // Video post
       const videoMedia = body.media[0] // TikTok supports one video per post
-      const fullContent = formatTikTokContent(body.content)
-      
+      const formattedContent = formatTikTokContent(body.content)
+
       result = await TikTokApiClient.postVideo(connection.accessToken!, {
-        title: fullContent,
+        title: formattedContent.text || '',
         videoUrl: videoMedia.url,
-        privacyLevel: body.privacy || 'PUBLIC_TO_EVERYONE',
+        privacyLevel: tiktokPrivacy,
         disableComment: body.settings?.disableComment || false,
         disableDuet: body.settings?.disableDuet || false,
         disableStitch: body.settings?.disableStitch || false,
       })
-      
+
     } else if (body.postType === 'photo' && body.media && body.media.length > 0) {
       // Photo post
       const photoUrls = body.media
         .filter(m => m.type === 'image')
         .slice(0, TIKTOK_LIMITS.MAX_PHOTO_COUNT)
         .map(m => m.url)
-      
+
       if (photoUrls.length === 0) {
         return NextResponse.json(
           { success: false, error: "No valid images provided for photo post" },
@@ -162,17 +148,17 @@ export async function POST(request: NextRequest) {
         )
       }
 
-      const fullContent = formatTikTokContent(body.content)
-      
+      const formattedContent = formatTikTokContent(body.content)
+
       result = await TikTokApiClient.postPhotos(connection.accessToken!, {
-        title: fullContent,
-        description: body.content.text,
+        title: formattedContent.text || '',
+        description: body.content.text || '',
         imageUrls: photoUrls,
-        privacyLevel: body.privacy || 'PUBLIC_TO_EVERYONE',
+        privacyLevel: tiktokPrivacy,
         disableComment: body.settings?.disableComment || false,
         autoAddMusic: body.settings?.autoAddMusic !== false, // Default to true
       })
-      
+
     } else {
       return NextResponse.json(
         { success: false, error: "Invalid post type or missing media" },
@@ -218,18 +204,17 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     logger.error("TikTok posting error:", error)
-    
-    const platformError = handlePlatformError('tiktok', error)
-    const statusCode = getStatusCodeForError(platformError)
-    
+
+    const tikTokError = handleTikTokError(error)
+
     return NextResponse.json(
-      { 
-        success: false, 
-        error: platformError.message,
-        code: platformError.code,
-        retryable: platformError.isRetryable
+      {
+        success: false,
+        error: tikTokError.message,
+        code: tikTokError.code,
+        retryable: false
       },
-      { status: statusCode }
+      { status: getStatusCodeForError(tikTokError.code) }
     )
   }
 }
@@ -250,7 +235,7 @@ export async function GET(request: NextRequest) {
 
     // Apply rate limiting for GET requests too
     const rateLimitResult = platformRateLimit('tiktok', session.userId, request)
-    
+
     const headers = {
       'X-RateLimit-Limit': rateLimitResult.limit.toString(),
       'X-RateLimit-Remaining': rateLimitResult.remaining.toString(),
@@ -267,7 +252,7 @@ export async function GET(request: NextRequest) {
           error: "Rate limit exceeded",
           retryAfter: rateLimitResult.retryAfter
         },
-        { 
+        {
           status: 429,
           headers: {
             ...headers,
@@ -278,7 +263,7 @@ export async function GET(request: NextRequest) {
     }
 
     const connection = await getTikTokConnection(session.userId)
-    
+
     if (!connection || !connection.connected) {
       return NextResponse.json({
         success: true,
@@ -291,7 +276,7 @@ export async function GET(request: NextRequest) {
 
     // Get creator info
     const creatorInfo = await TikTokApiClient.getCreatorInfo(connection.accessToken!)
-    
+
     return NextResponse.json({
       success: true,
       data: {
@@ -314,130 +299,27 @@ export async function GET(request: NextRequest) {
 
   } catch (error) {
     logger.error("TikTok connection check error:", error)
-    
-    const platformError = handlePlatformError('tiktok', error)
-    const statusCode = getStatusCodeForError(platformError)
-    
+
+    const tikTokError = handleTikTokError(error)
+
     return NextResponse.json(
-      { 
-        success: false, 
-        error: platformError.message,
-        code: platformError.code
+      {
+        success: false,
+        error: tikTokError.message,
+        code: tikTokError.code
       },
-      { status: statusCode }
+      { status: getStatusCodeForError(tikTokError.code) }
     )
   }
 }
 
 // Helper functions
-function validateTikTokPost(body: TikTokPostRequest): { valid: boolean; error?: string } {
-  // Check content
-  if (!body.content?.text || body.content.text.trim().length === 0) {
-    return { valid: false, error: "Content text is required" }
-  }
-
-  // Format content to check total length
-  const fullContent = formatTikTokContent(body.content)
-  if (fullContent.length > TIKTOK_LIMITS.TITLE_MAX_LENGTH) {
-    return { 
-      valid: false, 
-      error: `Content too long. Maximum ${TIKTOK_LIMITS.TITLE_MAX_LENGTH} characters allowed, got ${fullContent.length}` 
-    }
-  }
-
-  // Check hashtags
-  if (body.content.hashtags && body.content.hashtags.length > TIKTOK_LIMITS.MAX_HASHTAGS) {
-    return { 
-      valid: false, 
-      error: `Too many hashtags. Maximum ${TIKTOK_LIMITS.MAX_HASHTAGS} allowed` 
-    }
-  }
-
-  // Check post type
-  if (!body.postType || !['video', 'photo'].includes(body.postType)) {
-    return { valid: false, error: "Post type must be 'video' or 'photo'" }
-  }
-
-  // Check media
-  if (!body.media || body.media.length === 0) {
-    return { valid: false, error: "Media is required for TikTok posts" }
-  }
-
-  // Validate media for post type
-  if (body.postType === 'video') {
-    const videoMedia = body.media.filter(m => m.type === 'video')
-    if (videoMedia.length === 0) {
-      return { valid: false, error: "Video media required for video posts" }
-    }
-    if (videoMedia.length > 1) {
-      return { valid: false, error: "Only one video allowed per post" }
-    }
-
-    const video = videoMedia[0]
-    if (video.size > TIKTOK_LIMITS.MAX_VIDEO_SIZE_MB * 1024 * 1024) {
-      return { 
-        valid: false, 
-        error: `Video too large. Maximum ${TIKTOK_LIMITS.MAX_VIDEO_SIZE_MB}MB allowed` 
-      }
-    }
-
-    if (video.duration && video.duration > TIKTOK_LIMITS.MAX_VIDEO_DURATION_SEC) {
-      return { 
-        valid: false, 
-        error: `Video too long. Maximum ${TIKTOK_LIMITS.MAX_VIDEO_DURATION_SEC} seconds allowed` 
-      }
-    }
-  }
-
-  if (body.postType === 'photo') {
-    const photoMedia = body.media.filter(m => m.type === 'image')
-    if (photoMedia.length === 0) {
-      return { valid: false, error: "Image media required for photo posts" }
-    }
-    if (photoMedia.length > TIKTOK_LIMITS.MAX_PHOTO_COUNT) {
-      return { 
-        valid: false, 
-        error: `Too many photos. Maximum ${TIKTOK_LIMITS.MAX_PHOTO_COUNT} allowed` 
-      }
-    }
-
-    for (const photo of photoMedia) {
-      if (photo.size > TIKTOK_LIMITS.MAX_PHOTO_SIZE_MB * 1024 * 1024) {
-        return { 
-          valid: false, 
-          error: `Photo too large. Maximum ${TIKTOK_LIMITS.MAX_PHOTO_SIZE_MB}MB allowed per image` 
-        }
-      }
-    }
-  }
-
-  return { valid: true }
-}
-
-function formatTikTokContent(content: TikTokPostRequest['content']): string {
-  let formatted = content.text
-
-  // Add hashtags
-  if (content.hashtags && content.hashtags.length > 0) {
-    const hashtags = content.hashtags.map(tag => tag.startsWith('#') ? tag : `#${tag}`)
-    formatted += ' ' + hashtags.join(' ')
-  }
-
-  // Add mentions
-  if (content.mentions && content.mentions.length > 0) {
-    const mentions = content.mentions.map(mention => mention.startsWith('@') ? mention : `@${mention}`)
-    formatted += ' ' + mentions.join(' ')
-  }
-
-  return formatted.trim()
-}
-
 async function getTikTokConnection(userId: string) {
   // This would fetch TikTok connection from database
   // Mock connection for now
   const connections = await UserService.getActiveProviders(userId)
   const tiktokConnection = connections.find(p => p.provider === 'tiktok')
-  
+
   if (!tiktokConnection) {
     return null
   }
@@ -464,7 +346,7 @@ async function logPostActivity(params: {
       postType: params.postType,
       timestamp: params.timestamp
     })
-    
+
     // Here you would save to database
     // await PostActivityService.log({
     //   userId: params.userId,
@@ -473,25 +355,24 @@ async function logPostActivity(params: {
     //   postType: params.postType,
     //   timestamp: params.timestamp
     // })
-    
+
   } catch (error) {
     logger.error("Error logging TikTok post activity:", error)
     // Non-blocking - don't throw
   }
 }
 
-function getStatusCodeForError(error: any): number {
-  switch (error.code) {
-    case 'TIKTOK_TOKEN_EXPIRED':
-    case 'TIKTOK_PERMISSION_DENIED':
+function getStatusCodeForError(errorCode: string): number {
+  switch (errorCode) {
+    case 'PLATFORM_NOT_CONNECTED':
+    case 'INSUFFICIENT_PERMISSIONS':
       return 401
-    case 'TIKTOK_RATE_LIMIT':
+    case 'RATE_LIMIT_EXCEEDED':
       return 429
-    case 'TIKTOK_TEMPORARILY_BLOCKED':
-      return 429
-    case 'CONTENT_TOO_LONG':
-    case 'INVALID_MEDIA':
-    case 'UNSUPPORTED_MEDIA_TYPE':
+    case 'INVALID_CONTENT':
+    case 'TIKTOK_INVALID_VIDEO_FORMAT':
+    case 'TIKTOK_VIDEO_TOO_LARGE':
+    case 'TIKTOK_VIDEO_TOO_LONG':
       return 400
     default:
       return 500

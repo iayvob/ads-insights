@@ -383,6 +383,7 @@ async function createPost(postData: any): Promise<string> {
       platforms: postData.platforms,
       mediaIds: postData.media?.map((m: any) => m.id || m.filename).filter(Boolean) || [],
       amazonContent: postData.amazon || null, // Store Amazon-specific content
+      tiktokContent: postData.tiktok || null, // Store TikTok-specific content
       createdAt: new Date(),
       updatedAt: new Date()
     });
@@ -499,6 +500,19 @@ async function publishPost(postId: string, platforms: string[]): Promise<Publish
             expires_at: provider.expiresAt ? provider.expiresAt.getTime() : Date.now() + 3600000
           }
         };
+      } else if (provider.provider === 'tiktok' && provider.accessToken) {
+        session.connectedPlatforms!.tiktok = {
+          account: {
+            userId: provider.providerId,
+            username: provider.username || 'tiktok_user',
+            display_name: provider.username || 'TikTok User'
+          },
+          account_tokens: {
+            access_token: provider.accessToken,
+            refresh_token: provider.refreshToken || undefined,
+            expires_at: provider.expiresAt ? provider.expiresAt.getTime() : Date.now() + 3600000
+          }
+        };
       }
     }
 
@@ -589,6 +603,19 @@ async function publishPost(postId: string, platforms: string[]): Promise<Publish
               productHighlights: post.amazonContent.targetAudience?.interests || []
             },
             productASINs: post.amazonContent.productAsins || []
+          }),
+          // Add TikTok-specific content for TikTok platform
+          ...(platform === 'tiktok' && post.tiktokContent && {
+            tiktokContent: {
+              advertiserId: post.tiktokContent.advertiserId,
+              videoProperties: post.tiktokContent.videoProperties,
+              privacy: post.tiktokContent.privacy || 'PUBLIC',
+              allowComments: post.tiktokContent.allowComments ?? true,
+              allowDuet: post.tiktokContent.allowDuet ?? true,
+              allowStitch: post.tiktokContent.allowStitch ?? true,
+              brandedContent: post.tiktokContent.brandedContent ?? false,
+              promotionalContent: post.tiktokContent.promotionalContent ?? false
+            }
           })
         };
 

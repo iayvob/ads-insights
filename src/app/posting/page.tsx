@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -37,6 +37,26 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useSession } from '@/hooks/session-context';
 import { SubscriptionPlan } from '@prisma/client';
 
+// Utility function for TikTok video validation (moved outside component for performance)
+const validateTikTokVideo = (file: File): string[] => {
+  const errors: string[] = [];
+
+  // File size validation (500MB max)
+  if (file.size > 500 * 1024 * 1024) {
+    errors.push('TikTok video file size exceeds 500MB limit');
+  }
+
+  // File type validation
+  const allowedTypes = ['video/mp4', 'video/quicktime', 'video/webm'];
+  if (!allowedTypes.includes(file.type)) {
+    errors.push(
+      `Unsupported video format. Allowed: ${allowedTypes.join(', ')}`
+    );
+  }
+
+  return errors;
+};
+
 export default function PostingPage() {
   const { data: session, isLoading } = useSession();
   const {
@@ -62,6 +82,8 @@ export default function PostingPage() {
   const [hashtags, setHashtags] = useState<string[]>([]);
   const [currentHashtag, setCurrentHashtag] = useState('');
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
+  const [publishError, setPublishError] = useState<string | null>(null);
+  const [publishSuccess, setPublishSuccess] = useState<string | null>(null);
 
   // Amazon-specific state
   const [amazonBrandContent, setAmazonBrandContent] = useState({
@@ -79,7 +101,24 @@ export default function PostingPage() {
       title: '',
       description: '',
       tags: [] as string[],
-      category: undefined as string | undefined,
+      category: undefined as
+        | 'EDUCATION'
+        | 'ENTERTAINMENT'
+        | 'COMEDY'
+        | 'MUSIC'
+        | 'DANCE'
+        | 'SPORTS'
+        | 'FOOD'
+        | 'BEAUTY'
+        | 'FASHION'
+        | 'LIFESTYLE'
+        | 'TECHNOLOGY'
+        | 'BUSINESS'
+        | 'GAMING'
+        | 'PETS'
+        | 'DIY'
+        | 'TRAVEL'
+        | undefined,
       language: 'en',
       thumbnailTime: undefined as number | undefined,
     },
@@ -120,170 +159,162 @@ export default function PostingPage() {
     }
   }, [postContent, extractHashtags]);
 
-  // Validate content in real-time
-  useEffect(() => {
-    if (postContent && selectedPlatforms.length > 0) {
-      const validation = validateContent(postContent, selectedPlatforms);
-      setValidationErrors(validation.errors);
-
-      // Add Instagram validation for media requirement
-      if (
-        selectedPlatforms.includes('instagram') &&
-        uploadedMedia.length === 0
-      ) {
-        setValidationErrors((prev) => [
-          ...prev,
-          'Instagram requires at least one media file (image/video)',
-        ]);
-      }
-
-      // Add Amazon validation for brand content and ASINs
-      if (selectedPlatforms.includes('amazon')) {
-        const amazonErrors: string[] = [];
-
-        if (!amazonBrandContent.brandName.trim()) {
-          amazonErrors.push('Amazon posts require a brand name');
-        }
-
-        if (amazonProductASINs.length === 0) {
-          amazonErrors.push('Amazon posts require at least one product ASIN');
-        }
-
-        if (amazonErrors.length > 0) {
-          setValidationErrors((prev) => [...prev, ...amazonErrors]);
-        }
-      }
-
-      // Add TikTok validation for video content and advertiser ID
-      if (selectedPlatforms.includes('tiktok')) {
-        const tiktokErrors: string[] = [];
-
-        if (!tiktokContent.advertiserId.trim()) {
-          tiktokErrors.push('TikTok posts require an advertiser ID');
-        }
-
-        if (!selectedTikTokVideo) {
-          tiktokErrors.push('TikTok posts require a video file');
-        }
-
-        // Validate video if selected
-        if (selectedTikTokVideo) {
-          const videoErrors = validateTikTokVideo(selectedTikTokVideo);
-          tiktokErrors.push(...videoErrors);
-        }
-
-        if (tiktokErrors.length > 0) {
-          setValidationErrors((prev) => [...prev, ...tiktokErrors]);
-        }
-      }
-    } else {
-      setValidationErrors([]);
+  // Memoized validation for better performance
+  const validationResult = useMemo(() => {
+    if (!postContent || selectedPlatforms.length === 0) {
+      return { errors: [] };
     }
+
+    const validation = validateContent(postContent, selectedPlatforms);
+    const allErrors = [...validation.errors];
+
+    // Instagram validation for media requirement
+    if (selectedPlatforms.includes('instagram') && uploadedMedia.length === 0) {
+      allErrors.push(
+        'Instagram requires at least one media file (image/video)'
+      );
+    }
+
+    // Amazon validation for brand content and ASINs
+    if (selectedPlatforms.includes('amazon')) {
+      if (!amazonBrandContent.brandName.trim()) {
+        allErrors.push('Amazon posts require a brand name');
+      }
+
+      if (amazonProductASINs.length === 0) {
+        allErrors.push('Amazon posts require at least one product ASIN');
+      }
+    }
+
+    // TikTok validation for video content and advertiser ID
+    if (selectedPlatforms.includes('tiktok')) {
+      if (!tiktokContent.advertiserId.trim()) {
+        allErrors.push('TikTok posts require an advertiser ID');
+      }
+
+      if (!selectedTikTokVideo) {
+        allErrors.push('TikTok posts require a video file');
+      } else {
+        // Validate video if selected
+        const videoErrors = validateTikTokVideo(selectedTikTokVideo);
+        allErrors.push(...videoErrors);
+      }
+    }
+
+    return { errors: allErrors };
   }, [
     postContent,
     selectedPlatforms,
     validateContent,
     uploadedMedia.length,
-    amazonBrandContent,
-    amazonProductASINs,
-    tiktokContent,
+    amazonBrandContent.brandName,
+    amazonProductASINs.length,
+    tiktokContent.advertiserId,
     selectedTikTokVideo,
   ]);
 
-  const validateTikTokVideo = (file: File): string[] => {
-    const errors: string[] = [];
+  // Update validation errors when validation result changes
+  useEffect(() => {
+    setValidationErrors(validationResult.errors);
+  }, [validationResult]);
 
-    // File size validation (500MB max)
-    if (file.size > 500 * 1024 * 1024) {
-      errors.push('TikTok video file size exceeds 500MB limit');
-    }
-
-    // File type validation
-    const allowedTypes = ['video/mp4', 'video/quicktime', 'video/webm'];
-    if (!allowedTypes.includes(file.type)) {
-      errors.push(
-        `Unsupported video format. Allowed: ${allowedTypes.join(', ')}`
-      );
-    }
-
-    return errors;
-  };
-
-  const handleAddHashtag = () => {
+  const handleAddHashtag = useCallback(() => {
     if (currentHashtag.trim() && !hashtags.includes(currentHashtag.trim())) {
       setHashtags([...hashtags, currentHashtag.trim()]);
       setCurrentHashtag('');
     }
-  };
+  }, [currentHashtag, hashtags]);
 
-  const handleRemoveHashtag = (tag: string) => {
-    setHashtags(hashtags.filter((h) => h !== tag));
-  };
+  const handleRemoveHashtag = useCallback(
+    (tag: string) => {
+      setHashtags(hashtags.filter((h) => h !== tag));
+    },
+    [hashtags]
+  );
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      handleAddHashtag();
-    }
-  };
+  const handleKeyPress = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        handleAddHashtag();
+      }
+    },
+    [handleAddHashtag]
+  );
 
-  const handleMediaSelect = async (files: File[]) => {
+  const handleMediaSelect = useCallback(async (files: File[]) => {
     // This just handles file selection from MediaUploader
     // Store files for upload when user clicks publish
     setMediaFiles(files);
-  };
+  }, []);
 
-  const handleMediaUpload = async (files: File[]) => {
-    if (selectedPlatforms.length === 0) {
-      alert('Please select platforms first');
-      return;
-    }
+  const handleMediaUpload = useCallback(
+    async (files: File[]) => {
+      if (selectedPlatforms.length === 0) {
+        setPublishError('Please select platforms first');
+        return;
+      }
 
-    try {
-      // uploadMedia already handles uploading and updating uploadedMedia state
-      await uploadMedia(files, selectedPlatforms);
-    } catch (error) {
-      console.error('Media upload failed:', error);
-    }
-  };
+      try {
+        // uploadMedia already handles uploading and updating uploadedMedia state
+        await uploadMedia(files, selectedPlatforms);
+      } catch (error) {
+        console.error('Media upload failed:', error);
+        setPublishError('Media upload failed. Please try again.');
+      }
+    },
+    [selectedPlatforms, uploadMedia, setPublishError]
+  );
 
-  const handleAmazonBrandContentChange = (content: {
-    brandName: string;
-    headline?: string;
-    targetAudience?: string;
-    productHighlights?: string[];
-  }) => {
-    setAmazonBrandContent({
-      brandName: content.brandName,
-      headline: content.headline,
-      targetAudience: content.targetAudience,
-      productHighlights: content.productHighlights,
-    });
-  };
+  const handleAmazonBrandContentChange = useCallback(
+    (content: {
+      brandName: string;
+      headline?: string;
+      targetAudience?: string;
+      productHighlights?: string[];
+    }) => {
+      setAmazonBrandContent((prev) => ({
+        ...prev,
+        brandName: content.brandName,
+        headline: content.headline,
+        targetAudience: content.targetAudience,
+        productHighlights: content.productHighlights,
+      }));
+    },
+    []
+  );
 
-  const handleRemoveMedia = async (mediaId: string) => {
-    try {
-      await removeMedia(mediaId);
-      // Update local files list by removing the file
-      // In a real implementation, you'd match by ID
-      setMediaFiles([]);
-    } catch (error) {
-      console.error('Media removal failed:', error);
-    }
-  };
+  const handleRemoveMedia = useCallback(
+    async (mediaId: string) => {
+      try {
+        await removeMedia(mediaId);
+        // Update local files list by removing the file
+        // In a real implementation, you'd match by ID
+        setMediaFiles([]);
+      } catch (error) {
+        console.error('Media removal failed:', error);
+        setPublishError('Failed to remove media. Please try again.');
+      }
+    },
+    [removeMedia, setPublishError]
+  );
 
   const handlePublish = async (isDraft = false) => {
+    // Clear previous errors and success messages
+    setPublishError('');
+    setPublishSuccess('');
+
     if (
       !postContent.trim() &&
       uploadedMedia.length === 0 &&
       mediaFiles.length === 0
     ) {
-      alert('Please add content or media to your post');
+      setPublishError('Please add content or media to your post');
       return;
     }
 
     if (selectedPlatforms.length === 0) {
-      alert('Please select at least one platform');
+      setPublishError('Please select at least one platform');
       return;
     }
 
@@ -307,7 +338,7 @@ export default function PostingPage() {
         setMediaFiles([]);
       } catch (error) {
         console.error('Failed to upload media files:', error);
-        alert('Failed to upload media files');
+        setPublishError('Failed to upload media files. Please try again.');
         return;
       }
     }
@@ -320,12 +351,14 @@ export default function PostingPage() {
 
     // Ensure Instagram posts have media
     if (selectedPlatforms.includes('instagram') && uploadedMedia.length === 0) {
-      alert('Instagram posts require at least one media file');
+      setPublishError('Instagram posts require at least one media file');
       return;
     }
 
     if (validationErrors.length > 0) {
-      alert('Please fix validation errors before publishing');
+      setPublishError(
+        `Please fix the following errors: ${validationErrors.join(', ')}`
+      );
       return;
     }
 
@@ -376,6 +409,31 @@ export default function PostingPage() {
             },
           },
         }),
+        // TikTok-specific content in separate field as per schema
+        ...(selectedPlatforms.includes('tiktok') && {
+          tiktok: {
+            advertiserId: tiktokContent.advertiserId,
+            videoProperties: {
+              title:
+                tiktokContent.videoProperties?.title ||
+                postContent.substring(0, 100),
+              description:
+                tiktokContent.videoProperties?.description || postContent,
+              tags: tiktokContent.videoProperties?.tags || hashtags,
+              category:
+                tiktokContent.videoProperties?.category ||
+                ('ENTERTAINMENT' as const),
+              language: tiktokContent.videoProperties?.language || 'en',
+              thumbnailTime: tiktokContent.videoProperties?.thumbnailTime,
+            },
+            privacy: tiktokContent.privacy || 'PUBLIC',
+            allowComments: tiktokContent.allowComments ?? true,
+            allowDuet: tiktokContent.allowDuet ?? true,
+            allowStitch: tiktokContent.allowStitch ?? true,
+            brandedContent: tiktokContent.brandedContent ?? false,
+            promotionalContent: tiktokContent.promotionalContent ?? false,
+          },
+        }),
       };
 
       await createPost(postData);
@@ -394,8 +452,36 @@ export default function PostingPage() {
         productHighlights: [],
       });
       setAmazonProductASINs([]);
+      setTikTokContent({
+        advertiserId: '',
+        videoProperties: {
+          title: '',
+          description: '',
+          tags: [],
+          category: undefined,
+          language: 'en',
+          thumbnailTime: undefined,
+        },
+        privacy: 'PUBLIC',
+        allowComments: true,
+        allowDuet: true,
+        allowStitch: true,
+        brandedContent: false,
+        promotionalContent: false,
+      });
+      setSelectedTikTokVideo(null);
+
+      // Show success message
+      setPublishSuccess(
+        isDraft ? 'Draft saved successfully!' : 'Post published successfully!'
+      );
     } catch (error) {
       console.error('Publishing failed:', error);
+      setPublishError(
+        error instanceof Error
+          ? `Publishing failed: ${error.message}`
+          : 'Publishing failed. Please try again.'
+      );
     }
   };
 
@@ -435,6 +521,17 @@ export default function PostingPage() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Main Posting Area */}
           <div className="lg:col-span-2 space-y-6">
+            {/* Platform Selection */}
+            <motion.div
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: 0.4 }}
+            >
+              <PlatformSelector
+                selectedPlatforms={selectedPlatforms}
+                onPlatformsChange={setSelectedPlatforms}
+              />
+            </motion.div>
             {/* Content Input */}
             <motion.div
               initial={{ opacity: 0, x: -20 }}
@@ -524,6 +621,7 @@ export default function PostingPage() {
                 maxFiles={selectedPlatforms.includes('twitter') ? 4 : 10}
                 maxSize={50}
                 disabled={shouldDisableContent}
+                onError={setPublishError}
                 disabledMessage={
                   isPublishing
                     ? 'Cannot upload files while publishing...'
@@ -615,18 +713,6 @@ export default function PostingPage() {
                   )}
                 </CardContent>
               </Card>
-            </motion.div>
-
-            {/* Platform Selection */}
-            <motion.div
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: 0.4 }}
-            >
-              <PlatformSelector
-                selectedPlatforms={selectedPlatforms}
-                onPlatformsChange={setSelectedPlatforms}
-              />
             </motion.div>
 
             {/* Amazon Content Editor */}
@@ -785,6 +871,60 @@ export default function PostingPage() {
               >
                 Save as Draft
               </Button>
+
+              {/* Error Message Display */}
+              {publishError && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="p-4 bg-red-50 border border-red-200 rounded-lg"
+                >
+                  <div className="flex items-start gap-3">
+                    <AlertCircle className="h-5 w-5 text-red-600 mt-0.5 flex-shrink-0" />
+                    <div className="flex-1">
+                      <h4 className="font-medium text-red-800 mb-1">
+                        Publishing Failed
+                      </h4>
+                      <p className="text-red-700 text-sm">{publishError}</p>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="mt-2 text-red-600 hover:text-red-700 hover:bg-red-100 p-0 h-auto"
+                        onClick={() => setPublishError('')}
+                      >
+                        Dismiss
+                      </Button>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* Success Message Display */}
+              {publishSuccess && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="p-4 bg-green-50 border border-green-200 rounded-lg"
+                >
+                  <div className="flex items-start gap-3">
+                    <CheckCircle className="h-5 w-5 text-green-600 mt-0.5 flex-shrink-0" />
+                    <div className="flex-1">
+                      <h4 className="font-medium text-green-800 mb-1">
+                        Success!
+                      </h4>
+                      <p className="text-green-700 text-sm">{publishSuccess}</p>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="mt-2 text-green-600 hover:text-green-700 hover:bg-green-100 p-0 h-auto"
+                        onClick={() => setPublishSuccess('')}
+                      >
+                        Dismiss
+                      </Button>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
             </motion.div>
           </div>
         </div>

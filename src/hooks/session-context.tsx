@@ -1,6 +1,6 @@
-"use client";
+'use client';
 
-import { getClientSession } from "@/services/session-client";
+import { getClientSession } from '@/services/session-client';
 import React, {
   createContext,
   useContext,
@@ -9,7 +9,7 @@ import React, {
   ReactNode,
   useCallback,
   useRef,
-} from "react";
+} from 'react';
 
 // Define session types based on our API response
 export interface SessionUser {
@@ -51,19 +51,21 @@ export interface Session {
     instagram: boolean;
     twitter: boolean;
     amazon: boolean;
+    tiktok: boolean;
   };
   connectedPlatforms?: {
     facebook?: PlatformConnection;
     instagram?: PlatformConnection;
     twitter?: PlatformConnection;
     amazon?: PlatformConnection;
+    tiktok?: PlatformConnection;
   };
 }
 
 // Define the session context state type
 interface SessionContextType {
   session: Session | null;
-  status: "loading" | "authenticated" | "unauthenticated";
+  status: 'loading' | 'authenticated' | 'unauthenticated';
   update: () => Promise<void>;
   isLoading: boolean;
 }
@@ -71,7 +73,7 @@ interface SessionContextType {
 // Create the context with default values
 const SessionContext = createContext<SessionContextType>({
   session: null,
-  status: "loading",
+  status: 'loading',
   update: async () => {},
   isLoading: true,
 });
@@ -80,10 +82,10 @@ const SessionContext = createContext<SessionContextType>({
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [status, setStatus] = useState<
-    "loading" | "authenticated" | "unauthenticated"
-  >("loading");
+    'loading' | 'authenticated' | 'unauthenticated'
+  >('loading');
   const [isLoading, setIsLoading] = useState(true);
-  
+
   // Add caching and debouncing to prevent excessive API calls
   const lastFetchTimeRef = useRef<number>(0);
   const isFetchingRef = useRef<boolean>(false);
@@ -95,32 +97,35 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const fetchSession = useCallback(async () => {
     // Prevent concurrent fetches
     if (isFetchingRef.current) {
-      console.log("Session fetch already in progress, skipping...");
+      console.log('Session fetch already in progress, skipping...');
       return;
     }
 
     // Check cache validity
     const now = Date.now();
     if (now - lastFetchTimeRef.current < MIN_FETCH_INTERVAL) {
-      console.log("Session fetch rate limited, skipping...");
+      console.log('Session fetch rate limited, skipping...');
       return;
     }
 
     // Use cached session if it's still valid
-    if (sessionCacheRef.current && (now - lastFetchTimeRef.current < CACHE_DURATION)) {
-      console.log("Using cached session data");
+    if (
+      sessionCacheRef.current &&
+      now - lastFetchTimeRef.current < CACHE_DURATION
+    ) {
+      console.log('Using cached session data');
       setSession(sessionCacheRef.current);
       return;
     }
 
     isFetchingRef.current = true;
-    
+
     try {
       setIsLoading(true);
 
       // Try reading client cookie first (works only if cookie is not httpOnly)
       let sessionData: any = await getClientSession();
-      
+
       // Fallback: call server endpoint if client cannot read cookie (httpOnly)
       if (!sessionData) {
         try {
@@ -128,17 +133,23 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           if (res.ok) {
             sessionData = await res.json();
             // If API returns envelope { authenticated, userId, ... } reuse directly
-            if (sessionData && typeof sessionData === 'object' && 'authenticated' in sessionData) {
+            if (
+              sessionData &&
+              typeof sessionData === 'object' &&
+              'authenticated' in sessionData
+            ) {
               const api = sessionData;
               const enhancedSession: Session = {
                 authenticated: !!api.authenticated,
-                user: api.userId ? {
-                  id: api.userId,
-                  email: api.user?.email || "",
-                  name: api.user?.username || api.user?.email || "",
-                  image: api.user?.image,
-                  plan: api.plan,
-                } : undefined,
+                user: api.userId
+                  ? {
+                      id: api.userId,
+                      email: api.user?.email || '',
+                      name: api.user?.username || api.user?.email || '',
+                      image: api.user?.image,
+                      plan: api.plan,
+                    }
+                  : undefined,
                 status: api.status || {
                   facebook: !!api.connectedPlatforms?.facebook,
                   instagram: !!api.connectedPlatforms?.instagram,
@@ -149,7 +160,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
               };
               setSession(enhancedSession);
               sessionCacheRef.current = enhancedSession;
-              setStatus(api.authenticated ? 'authenticated' : 'unauthenticated');
+              setStatus(
+                api.authenticated ? 'authenticated' : 'unauthenticated'
+              );
               setIsLoading(false);
               return;
             }
@@ -167,8 +180,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           authenticated: true,
           user: {
             id: sessionData.userId,
-            email: user?.email || "",
-            name: user?.username || user?.email || "",
+            email: user?.email || '',
+            name: user?.username || user?.email || '',
             image: user?.image,
             plan: (sessionData as any)?.plan,
           },
@@ -177,6 +190,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
             instagram: !!maybeConnected?.instagram,
             twitter: !!maybeConnected?.twitter,
             amazon: !!maybeConnected?.amazon,
+            tiktok: !!maybeConnected?.tiktok,
           },
           connectedPlatforms: maybeConnected
             ? {
@@ -184,6 +198,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
                 instagram: maybeConnected.instagram || undefined,
                 twitter: maybeConnected.twitter || undefined,
                 amazon: maybeConnected.amazon || undefined,
+                tiktok: maybeConnected.tiktok || undefined,
               }
             : undefined,
           lastUpdated: new Date(),
@@ -191,7 +206,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
         setSession(enhancedSession);
         sessionCacheRef.current = enhancedSession;
-        setStatus("authenticated");
+        setStatus('authenticated');
       } else {
         const unauthenticatedSession = {
           authenticated: false,
@@ -199,17 +214,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         };
         setSession(unauthenticatedSession);
         sessionCacheRef.current = unauthenticatedSession;
-        setStatus("unauthenticated");
+        setStatus('unauthenticated');
       }
     } catch (error) {
-      console.error("Failed to fetch session from client:", error);
+      console.error('Failed to fetch session from client:', error);
       const errorSession = {
         authenticated: false,
         lastUpdated: new Date(),
       };
       setSession(errorSession);
       sessionCacheRef.current = errorSession;
-      setStatus("unauthenticated");
+      setStatus('unauthenticated');
     } finally {
       setIsLoading(false);
       isFetchingRef.current = false;
@@ -228,10 +243,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       fetchSession();
     };
 
-    window.addEventListener("session-updated", handleSessionUpdate);
+    window.addEventListener('session-updated', handleSessionUpdate);
 
     return () => {
-      window.removeEventListener("session-updated", handleSessionUpdate);
+      window.removeEventListener('session-updated', handleSessionUpdate);
     };
   }, [fetchSession]);
 
@@ -250,7 +265,7 @@ export function useSession() {
   const context = useContext(SessionContext);
 
   if (context === undefined) {
-    throw new Error("useSession must be used within a SessionProvider");
+    throw new Error('useSession must be used within a SessionProvider');
   }
 
   return {

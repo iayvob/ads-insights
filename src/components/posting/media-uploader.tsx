@@ -34,6 +34,7 @@ interface MediaUploaderProps {
   acceptedTypes?: string[];
   disabled?: boolean;
   disabledMessage?: string;
+  onError?: (error: string) => void;
 }
 
 export function MediaUploader({
@@ -44,6 +45,7 @@ export function MediaUploader({
   acceptedTypes = ['image/*', 'video/*'],
   disabled = false,
   disabledMessage,
+  onError,
 }: MediaUploaderProps) {
   const [mediaFiles, setMediaFiles] = useState<MediaFile[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -74,7 +76,7 @@ export function MediaUploader({
       const totalFiles = files.length + newFiles.length;
 
       if (totalFiles > maxFiles) {
-        alert(`Maximum ${maxFiles} files allowed`);
+        onError?.(` Maximum ${maxFiles} files allowed`);
         return;
       }
 
@@ -83,7 +85,7 @@ export function MediaUploader({
         (file) => file.size > maxSize * 1024 * 1024
       );
       if (oversizedFiles.length > 0) {
-        alert(`Files must be smaller than ${maxSize}MB`);
+        onError?.(`Files must be smaller than ${maxSize}MB`);
         return;
       }
 
@@ -99,7 +101,7 @@ export function MediaUploader({
       );
 
       if (invalidFiles.length > 0) {
-        alert(
+        onError?.(
           `Invalid file type. Please upload only ${acceptedTypes.join(', ')}`
         );
         return;

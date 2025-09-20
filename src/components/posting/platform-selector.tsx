@@ -16,11 +16,13 @@ import {
   Clock,
   Lock,
   ShoppingBag,
+  Video,
 } from 'lucide-react';
 import { SocialPlatform } from '@/validations/posting-types';
 import { SubscriptionPlan } from '@prisma/client';
 import { useSession } from '@/hooks/session-context';
 import { validatePostingAccess } from '@/services/session-platform-manager';
+import Link from 'next/link';
 
 interface Platform {
   id: SocialPlatform;
@@ -64,7 +66,7 @@ export function PlatformSelector({
         : 'disconnected',
       characterLimit: 2200,
       features: ['Images', 'Videos', 'Stories', 'Hashtags'],
-      requiresPremium: false, // Instagram is available for freemium
+      requiresPremium: true, // Instagram requires premium
     },
     {
       id: 'facebook',
@@ -116,6 +118,23 @@ export function PlatformSelector({
       characterLimit: 1000,
       features: ['Brand Content', 'Product ASINs', 'Images', 'Videos'],
       requiresPremium: true, // Amazon requires premium
+    },
+    {
+      id: 'tiktok',
+      name: 'TikTok',
+      icon: Video,
+      color: 'text-pink-500',
+      bgColor: 'bg-pink-50 border-pink-200',
+      connected: !!session?.connectedPlatforms?.tiktok,
+      status:
+        userPlan === 'FREEMIUM'
+          ? 'restricted'
+          : !!session?.connectedPlatforms?.tiktok
+            ? 'connected'
+            : 'disconnected',
+      characterLimit: 2200,
+      features: ['Videos', 'Photos', 'Hashtags', 'Music', 'Effects'],
+      requiresPremium: true, // TikTok requires premium
     },
   ];
 
@@ -296,17 +315,15 @@ export function PlatformSelector({
 
               {/* Connect Button for Disconnected Platforms */}
               {!platform.connected && platform.status === 'disconnected' && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full mt-3"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    // Handle platform connection
-                  }}
-                >
-                  Connect {platform.name}
-                </Button>
+                <Link href={`/profile?tab=connections`} className="w-full mt-3">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full text-xs"
+                  >
+                    Connect {platform.name}
+                  </Button>
+                </Link>
               )}
 
               {/* Hover Effects */}
