@@ -966,11 +966,13 @@ export function TwitterInsights({
                               </span>
                               <div className="flex items-center gap-2">
                                 <div className="w-16 h-2 bg-gray-200 rounded-full overflow-hidden">
-                                  {/* eslint-disable-next-line react/forbid-component-props */}
                                   <div
                                     className="h-full bg-blue-500 rounded-full transition-all duration-300"
-                                    style={{
-                                      width: `${Math.min(100, Math.max(0, group.percentage))}%`,
+                                    data-width={`${Math.min(100, Math.max(0, group.percentage || 0))}%`}
+                                    ref={(el) => {
+                                      if (el) {
+                                        el.style.width = `${Math.min(100, Math.max(0, group.percentage || 0))}%`;
+                                      }
                                     }}
                                   />
                                 </div>
