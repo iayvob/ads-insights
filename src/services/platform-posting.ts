@@ -1,5 +1,6 @@
 import { SocialPlatform } from "@/validations/posting-types"
 import { AuthSession } from "@/validations/types"
+import { prisma } from "@/config/database/prisma"
 
 export interface PlatformConnection {
   platform: SocialPlatform
@@ -56,22 +57,97 @@ export class PlatformPostingService {
   /**
    * Get all connected platforms from session
    */
-  static getConnectedPlatforms(session: AuthSession): PlatformConnection[] {
+  static async getConnectedPlatforms(session: AuthSession): Promise<PlatformConnection[]> {
     const connections: PlatformConnection[] = []
 
     if (session.connectedPlatforms?.facebook) {
       const facebook = session.connectedPlatforms.facebook
-      connections.push({
-        platform: "facebook",
-        connected: true,
-        accessToken: facebook.account_tokens.access_token,
-        refreshToken: facebook.account_tokens.refresh_token,
-        expiresAt: new Date(facebook.account_tokens.expires_at),
-        username: facebook.account.username,
-        userId: facebook.account.userId,
-        pageId: facebook.account.advertisingAccountId,
-        accountName: facebook.account.username
-      })
+
+      // Get Facebook Page ID from AuthProvider businessAccounts 
+      const authProvider = await prisma.authProvider.findFirst({
+        where: {
+          userId: session.userId,
+          provider: 'facebook'
+        }
+      });
+
+      let pageId = null;
+      let pageName = facebook.account.username;
+
+      if (authProvider?.businessAccounts) {
+        try {
+          const businessData = JSON.parse(authProvider.businessAccounts);
+          console.log('Raw Facebook business data keys:', Object.keys(businessData));
+          console.log('Facebook business data structure:', {
+            hasBusinessAccounts: !!businessData.business_accounts,
+            hasFacebookPages: !!businessData.facebook_pages,
+            hasPages: !!businessData.pages,
+            businessAccountsCount: businessData.business_accounts?.length || 0,
+            facebookPagesCount: businessData.facebook_pages?.length || 0,
+            pagesCount: businessData.pages?.length || 0
+          });
+
+          // Try all possible page arrays
+          let pages = [];
+          if (businessData.facebook_pages && businessData.facebook_pages.length > 0) {
+            pages = businessData.facebook_pages;
+            console.log('Using facebook_pages');
+          } else if (businessData.business_accounts && businessData.business_accounts.length > 0) {
+            pages = businessData.business_accounts;
+            console.log('Using business_accounts');
+          } else if (businessData.pages && businessData.pages.length > 0) {
+            pages = businessData.pages;
+            console.log('Using pages');
+          }
+
+          console.log('Facebook pages found:', pages.length, pages.map((p: any) => ({
+            id: p.id,
+            name: p.name,
+            tasks: p.tasks,
+            hasCreateContent: p.tasks && p.tasks.includes ? p.tasks.includes('CREATE_CONTENT') : false
+          })));
+
+          // Find a page with CREATE_CONTENT permissions, or just use the first one
+          const primaryPage = pages.find((page: any) =>
+            page.tasks && page.tasks.includes && page.tasks.includes('CREATE_CONTENT')
+          ) || pages[0];
+
+          if (primaryPage) {
+            pageId = primaryPage.id;
+            pageName = primaryPage.name || pageName;
+            console.log('✅ Selected Facebook page:', {
+              id: pageId,
+              name: pageName,
+              tasks: primaryPage.tasks,
+              hasCreateContent: primaryPage.tasks && primaryPage.tasks.includes ? primaryPage.tasks.includes('CREATE_CONTENT') : false
+            });
+          } else {
+            console.log('❌ No Facebook pages found in any array');
+          }
+        } catch (e) {
+          console.error('Error parsing Facebook business accounts:', e, authProvider.businessAccounts?.substring(0, 200));
+        }
+      } else {
+        console.log('❌ No businessAccounts field found in authProvider');
+      }      // Fallback: try to use advertisingAccountId if no pages found (though this is likely wrong)
+      if (!pageId && authProvider?.advertisingAccountId) {
+        console.warn('No Facebook pages found, falling back to advertising account ID');
+        pageId = authProvider.advertisingAccountId;
+      }
+
+      if (pageId) {
+        connections.push({
+          platform: "facebook",
+          connected: true,
+          accessToken: facebook.account_tokens.access_token,
+          refreshToken: facebook.account_tokens.refresh_token,
+          expiresAt: new Date(facebook.account_tokens.expires_at),
+          username: facebook.account.username,
+          userId: facebook.account.userId,
+          pageId: pageId,
+          accountName: pageName
+        })
+      }
     }
 
     if (session.connectedPlatforms?.instagram) {
@@ -136,8 +212,8 @@ export class PlatformPostingService {
   /**
    * Get specific platform connection
    */
-  static getPlatformConnection(session: AuthSession, platform: SocialPlatform): PlatformConnection | null {
-    const connections = this.getConnectedPlatforms(session)
+  static async getPlatformConnection(session: AuthSession, platform: SocialPlatform): Promise<PlatformConnection | null> {
+    const connections = await this.getConnectedPlatforms(session)
     return connections.find(conn => conn.platform === platform) || null
   }
 
@@ -162,7 +238,7 @@ export class PlatformPostingService {
     url?: string
     error?: string
   }> {
-    const connection = this.getPlatformConnection(session, platform)
+    const connection = await this.getPlatformConnection(session, platform)
 
     if (!connection || !this.isConnectionValid(connection)) {
       return {
@@ -206,13 +282,38 @@ export class PlatformPostingService {
   ) {
     const { accessToken, pageId } = connection
 
-    // Facebook Graph API posting logic
+    // Facebook Graph API posting logic - get page access token first
     const pageAccessTokenResponse = await fetch(
-      `https://graph.facebook.com/v19.0/${pageId}?fields=access_token&access_token=${accessToken}`
+      `https://graph.facebook.com/v23.0/${pageId}?fields=access_token&access_token=${accessToken}`
     )
 
+    if (!pageAccessTokenResponse.ok) {
+      console.error('Failed to get Facebook page access token:', pageAccessTokenResponse.status);
+      return {
+        success: false,
+        error: 'Failed to get page access token'
+      }
+    }
+
     const pageTokenData = await pageAccessTokenResponse.json()
+
+    if (pageTokenData.error) {
+      console.error('Facebook page access token error:', pageTokenData.error);
+      return {
+        success: false,
+        error: pageTokenData.error.message || 'Failed to get page access token'
+      }
+    }
+
     const pageAccessToken = pageTokenData.access_token
+
+    if (!pageAccessToken) {
+      console.error('No page access token received from Facebook');
+      return {
+        success: false,
+        error: 'No page access token received'
+      }
+    }
 
     const postData: any = {
       message: content.text || '',
@@ -227,7 +328,7 @@ export class PlatformPostingService {
     }
 
     const response = await fetch(
-      `https://graph.facebook.com/v19.0/${pageId}/feed`,
+      `https://graph.facebook.com/v23.0/${pageId}/feed`,
       {
         method: 'POST',
         headers: {

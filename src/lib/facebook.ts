@@ -2,18 +2,48 @@
 import FB from 'fb';
 
 export function initFacebook(accessToken: string) {
-    (FB as any).options({ version: 'v19.0' });
+    (FB as any).options({ version: 'v23.0' }); // Updated to latest stable version
     (FB as any).setAccessToken(accessToken);
     return FB;
 }
 
+// Get page access token from page ID using user access token
+export async function getPageAccessToken(
+    pageId: string,
+    userAccessToken: string
+): Promise<string | null> {
+    try {
+        const response = await fetch(
+            `https://graph.facebook.com/v23.0/${pageId}?fields=access_token&access_token=${userAccessToken}`
+        );
+
+        const data = await response.json();
+
+        if (data.error) {
+            console.error('Error getting page access token:', data.error);
+            return null;
+        }
+
+        return data.access_token || null;
+    } catch (error) {
+        console.error('Failed to get page access token:', error);
+        return null;
+    }
+}
+
 export async function postTextOrLink(
     pageId: string,
-    accessToken: string,
+    userAccessToken: string,
     message: string,
     link?: string
 ) {
-    const FacebookAPI = initFacebook(accessToken);
+    // First get the page access token
+    const pageAccessToken = await getPageAccessToken(pageId, userAccessToken);
+    if (!pageAccessToken) {
+        throw new Error('Failed to get page access token');
+    }
+
+    const FacebookAPI = initFacebook(pageAccessToken);
 
     return new Promise((resolve, reject) => {
         FacebookAPI.api(
@@ -30,11 +60,17 @@ export async function postTextOrLink(
 
 export async function postImage(
     pageId: string,
-    accessToken: string,
+    userAccessToken: string,
     imageUrl: string,
     caption: string
 ) {
-    const FacebookAPI = initFacebook(accessToken);
+    // First get the page access token
+    const pageAccessToken = await getPageAccessToken(pageId, userAccessToken);
+    if (!pageAccessToken) {
+        throw new Error('Failed to get page access token');
+    }
+
+    const FacebookAPI = initFacebook(pageAccessToken);
 
     return new Promise((resolve, reject) => {
         FacebookAPI.api(`/${pageId}/photos`, 'post', { url: imageUrl, caption }, (res: any) => {
@@ -46,11 +82,17 @@ export async function postImage(
 
 export async function postVideo(
     pageId: string,
-    accessToken: string,
+    userAccessToken: string,
     videoUrl: string,
     description: string
 ) {
-    const FacebookAPI = initFacebook(accessToken);
+    // First get the page access token
+    const pageAccessToken = await getPageAccessToken(pageId, userAccessToken);
+    if (!pageAccessToken) {
+        throw new Error('Failed to get page access token');
+    }
+
+    const FacebookAPI = initFacebook(pageAccessToken);
 
     return new Promise((resolve, reject) => {
         FacebookAPI.api(

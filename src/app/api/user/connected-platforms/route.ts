@@ -13,10 +13,10 @@ export async function GET(request: NextRequest) {
     }
 
     // Get all connected platforms from session
-    const connections = PlatformPostingService.getConnectedPlatforms(session)
-    
+    const connections = await PlatformPostingService.getConnectedPlatforms(session)
+
     // Filter out invalid/expired connections
-    const validConnections = connections.filter(conn => 
+    const validConnections = connections.filter(conn =>
       PlatformPostingService.isConnectionValid(conn)
     )
 

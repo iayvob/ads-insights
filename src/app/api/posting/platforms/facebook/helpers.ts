@@ -38,13 +38,84 @@ export async function getFacebookConnection(request: NextRequest): Promise<Faceb
             return null;
         }
 
+        // Get Facebook Page ID from AuthProvider businessAccounts
+        let pageId = null;
+        let pageName = authProvider?.username || '';
+        let primaryPage = null;
+
+        if (authProvider?.businessAccounts) {
+            try {
+                const businessData = JSON.parse(authProvider.businessAccounts);
+                console.log('[HELPERS] Raw Facebook business data keys:', Object.keys(businessData));
+                console.log('[HELPERS] Facebook business data structure:', {
+                    hasBusinessAccounts: !!businessData.business_accounts,
+                    hasFacebookPages: !!businessData.facebook_pages,
+                    hasPages: !!businessData.pages,
+                    businessAccountsCount: businessData.business_accounts?.length || 0,
+                    facebookPagesCount: businessData.facebook_pages?.length || 0,
+                    pagesCount: businessData.pages?.length || 0
+                });
+
+                // Try all possible page arrays
+                let pages = [];
+                if (businessData.facebook_pages && businessData.facebook_pages.length > 0) {
+                    pages = businessData.facebook_pages;
+                    console.log('[HELPERS] Using facebook_pages');
+                } else if (businessData.business_accounts && businessData.business_accounts.length > 0) {
+                    pages = businessData.business_accounts;
+                    console.log('[HELPERS] Using business_accounts');
+                } else if (businessData.pages && businessData.pages.length > 0) {
+                    pages = businessData.pages;
+                    console.log('[HELPERS] Using pages');
+                }
+
+                console.log('[HELPERS] Facebook pages found:', pages.length, pages.map((p: any) => ({
+                    id: p.id,
+                    name: p.name,
+                    tasks: p.tasks,
+                    hasCreateContent: p.tasks && p.tasks.includes ? p.tasks.includes('CREATE_CONTENT') : false
+                })));
+
+                // Find a page with CREATE_CONTENT permissions, or just use the first one
+                primaryPage = pages.find((page: any) =>
+                    page.tasks && page.tasks.includes && page.tasks.includes('CREATE_CONTENT')
+                ) || pages[0];
+
+                if (primaryPage) {
+                    pageId = primaryPage.id;
+                    pageName = primaryPage.name || pageName;
+                    console.log('[HELPERS] ✅ Selected Facebook page:', {
+                        id: pageId,
+                        name: pageName,
+                        tasks: primaryPage.tasks,
+                        hasCreateContent: primaryPage.tasks && primaryPage.tasks.includes ? primaryPage.tasks.includes('CREATE_CONTENT') : false
+                    });
+                } else {
+                    console.log('[HELPERS] ❌ No Facebook pages found in any array');
+                }
+            } catch (e) {
+                console.error('[HELPERS] Error parsing Facebook business accounts:', e, authProvider.businessAccounts?.substring(0, 200));
+            }
+        } else {
+            console.log('[HELPERS] ❌ No businessAccounts field found in authProvider');
+        }        // Fallback: try to use advertisingAccountId if no pages found (though this is likely wrong)
+        if (!pageId && authProvider?.advertisingAccountId) {
+            console.warn('No Facebook pages found, falling back to advertising account ID');
+            pageId = authProvider.advertisingAccountId;
+        }
+
+        if (!pageId) {
+            console.error("No Facebook page found with posting permissions");
+            return null;
+        }
+
         return {
             accessToken: authProvider.accessToken,
             userId: authProvider.providerId || '',
-            pageId: authProvider.advertisingAccountId || '', // Use advertising account ID as page ID
+            pageId: pageId,
             connected: true,
             expiresAt: authProvider.expiresAt || undefined,
-            pageName: authProvider.username || ''
+            pageName: pageName
         };
     } catch (error) {
         console.error("Error fetching Facebook connection:", error);

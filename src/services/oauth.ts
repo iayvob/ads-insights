@@ -16,7 +16,7 @@ export class OAuthService {
   static async getLongLivedFacebookToken(shortLivedToken: string) {
     try {
       logger.info("Exchanging for long-lived Facebook token");
-      
+
       const response = await fetch(`https://graph.facebook.com/v19.0/oauth/access_token`, {
         method: "POST",
         headers: {
@@ -41,17 +41,17 @@ export class OAuthService {
       }
 
       const longLivedTokenData = await response.json();
-      
+
       logger.info("Successfully obtained long-lived Facebook token", {
         hasToken: !!longLivedTokenData.access_token,
         expiresIn: longLivedTokenData.expires_in || '60 days (default)',
       });
-      
+
       // Default to 60 days (in seconds) if no expires_in is provided
       if (!longLivedTokenData.expires_in) {
         longLivedTokenData.expires_in = 60 * 24 * 60 * 60; // 60 days in seconds
       }
-      
+
       return longLivedTokenData;
     } catch (error) {
       logger.error("Error getting long-lived Facebook token", {
@@ -113,12 +113,12 @@ export class OAuthService {
               statusText: response.statusText,
               error: errorData
             })
-            
+
             // If it's a 4xx error, don't retry
             if (response.status >= 400 && response.status < 500) {
               throw new AuthError(`Failed to authenticate with Facebook: ${errorData}`)
             }
-            
+
             // For 5xx errors, retry
             if (attempt === maxRetries) {
               throw new AuthError(`Failed to authenticate with Facebook after ${maxRetries} attempts: ${errorData}`)
@@ -127,7 +127,7 @@ export class OAuthService {
           }
 
           const tokenData = await response.json()
-          logger.info("Facebook token exchange successful", { 
+          logger.info("Facebook token exchange successful", {
             attempt,
             hasAccessToken: !!tokenData.access_token,
             expiresIn: tokenData.expires_in,
@@ -245,7 +245,7 @@ export class OAuthService {
       return structuredData;
 
     } catch (error) {
-      logger.error("Failed to get Facebook user data", { 
+      logger.error("Failed to get Facebook user data", {
         error: error instanceof Error ? {
           message: error.message,
           name: error.name,
@@ -277,7 +277,7 @@ export class OAuthService {
           }
         ),
         fetch(
-          `https://graph.facebook.com/v19.0/me/accounts?access_token=${accessToken}&fields=id,name,category,fan_count,talking_about_count,access_token,instagram_business_account{id,username,followers_count,media_count}`,
+          `https://graph.facebook.com/v19.0/me/accounts?access_token=${accessToken}&fields=id,name,category,fan_count,talking_about_count,access_token,tasks,instagram_business_account{id,username,followers_count,media_count}`,
           {
             headers: { 'User-Agent': 'AdInsights-App/1.0' },
             signal: AbortSignal.timeout(15000),
@@ -326,9 +326,11 @@ export class OAuthService {
         fan_count: page.fan_count || 0,
         talking_about_count: page.talking_about_count || 0,
         access_token: page.access_token,
+        tasks: page.tasks || [], // Include tasks for permission checking
         instagram_business_account: page.instagram_business_account,
         // Analytics flags
         has_instagram: !!page.instagram_business_account,
+        has_create_content: page.tasks && page.tasks.includes('CREATE_CONTENT'),
         engagement_potential: (page.fan_count || 0) + (page.talking_about_count || 0)
       }));
 
@@ -355,15 +357,15 @@ export class OAuthService {
       return result;
 
     } catch (error) {
-      logger.warn("Failed to get Facebook business data", { 
+      logger.warn("Failed to get Facebook business data", {
         error: error instanceof Error ? {
           message: error.message,
           name: error.name,
           stack: error.stack
         } : error
       });
-      return { 
-        businesses: [], 
+      return {
+        businesses: [],
         adAccounts: [],
         analytics_summary: {
           total_businesses: 0,
@@ -644,7 +646,7 @@ export class OAuthService {
         for (const page of pagesData.data) {
           if (page.instagram_business_account) {
             const igAccount = page.instagram_business_account;
-            
+
             logger.info("Processing Instagram business account", {
               pageId: page.id,
               pageName: page.name,
@@ -670,7 +672,7 @@ export class OAuthService {
               media_count: igAccount.media_count || 0,
               profile_picture_url: igAccount.profile_picture_url,
               account_type: 'BUSINESS', // Instagram business accounts are always BUSINESS type
-              
+
               // Connected Facebook page info
               connected_facebook_page: {
                 id: page.id,
@@ -685,19 +687,19 @@ export class OAuthService {
               analytics_permissions: accountDetails.permissions,
               content_publishing_limit: accountDetails.content_publishing_limit,
               insights_access: accountDetails.insights_access,
-              
+
               // Flags for analytics capabilities
               can_access_insights: accountDetails.insights_access,
               can_publish_content: accountDetails.permissions.includes('instagram_manage_content'),
               can_manage_ads: adAccountsData.length > 0,
-              
+
               // Connection metadata
               connected_at: new Date().toISOString(),
               last_updated: new Date().toISOString()
             };
 
             instagramBusinessAccounts.push(businessAccount);
-            
+
             // Add ad accounts for this Instagram account
             if (adAccountsData.length > 0) {
               instagramAdAccounts.push(...adAccountsData.map((adAccount: any) => ({
@@ -721,7 +723,7 @@ export class OAuthService {
         businessAccounts: instagramBusinessAccounts,
         adAccounts: instagramAdAccounts,
         pages: pagesData.data || [],
-        
+
         // Analytics summary for Instagram
         analytics_summary: {
           total_instagram_accounts: instagramBusinessAccounts.length,
@@ -748,7 +750,7 @@ export class OAuthService {
           stack: error.stack
         } : error
       });
-      
+
       throw error;
     }
   }
@@ -773,7 +775,7 @@ export class OAuthService {
 
       if (permissionsResponse.ok) {
         const accountData = await permissionsResponse.json();
-        
+
         // Check if we can access insights (requires business account)
         try {
           const insightsTestResponse = await fetch(
@@ -783,14 +785,14 @@ export class OAuthService {
               signal: AbortSignal.timeout(5000),
             }
           );
-          
+
           insights_access = insightsTestResponse.ok;
-          
+
           if (insights_access) {
             permissions.push('instagram_basic', 'instagram_manage_insights');
           }
         } catch (insightsError) {
-          logger.warn("Instagram insights access test failed", { 
+          logger.warn("Instagram insights access test failed", {
             instagramAccountId,
             error: insightsError instanceof Error ? insightsError.message : String(insightsError)
           });
@@ -806,12 +808,12 @@ export class OAuthService {
               signal: AbortSignal.timeout(5000),
             }
           );
-          
+
           if (contentResponse.ok) {
             permissions.push('instagram_manage_content');
           }
         } catch (contentError) {
-          logger.warn("Instagram content access test failed", { 
+          logger.warn("Instagram content access test failed", {
             instagramAccountId,
             error: contentError instanceof Error ? contentError.message : String(contentError)
           });
@@ -829,7 +831,7 @@ export class OAuthService {
         instagramAccountId,
         error: error instanceof Error ? error.message : String(error)
       });
-      
+
       return {
         permissions: [],
         insights_access: false,
@@ -874,16 +876,16 @@ export class OAuthService {
         spend_cap: account.spend_cap,
         funding_source_details: account.funding_source_details,
         can_use_reach_and_frequency: account.can_use_reach_and_frequency,
-        
+
         // Instagram ads specific flags
         supports_instagram_ads: true,
         can_promote_instagram_posts: account.account_status === 1,
         instagram_ads_access_token: pageAccessToken,
-        
+
         // Analytics flags
         is_active: account.account_status === 1,
         has_spend: parseFloat(account.amount_spent || "0") > 0,
-        
+
         // Connection metadata
         connected_via: 'facebook_page',
         page_access_token: pageAccessToken
@@ -926,10 +928,10 @@ export class OAuthService {
       return adAccounts
         .filter((account: any) => {
           // Check if the ad account supports Instagram placements
-          return account.capabilities && 
-                 account.capabilities.includes && 
-                 (account.capabilities.includes('instagram') || 
-                  account.capabilities.includes('instagram_stories'));
+          return account.capabilities &&
+            account.capabilities.includes &&
+            (account.capabilities.includes('instagram') ||
+              account.capabilities.includes('instagram_stories'));
         })
         .map((account: any) => ({
           id: account.id,
@@ -940,16 +942,16 @@ export class OAuthService {
           amount_spent: account.amount_spent || "0",
           business: account.business,
           capabilities: account.capabilities,
-          
+
           // Instagram ads specific
           supports_instagram_ads: true,
           can_promote_instagram_posts: account.account_status === 1,
           instagram_ads_access_token: accessToken,
-          
+
           // Analytics flags
           is_active: account.account_status === 1,
           has_spend: parseFloat(account.amount_spent || "0") > 0,
-          
+
           // Connection metadata
           connected_via: 'user_level',
           user_access_token: accessToken
@@ -972,14 +974,14 @@ export class OAuthService {
   static async refreshTwitterToken(refreshToken: string) {
     try {
       logger.info("Refreshing Twitter access token");
-      
+
       if (!env.TWITTER_CLIENT_ID || !env.TWITTER_CLIENT_SECRET) {
         logger.error("Twitter OAuth credentials missing");
         throw new AuthError("Twitter OAuth credentials not configured");
       }
-      
+
       const credentials = Buffer.from(`${env.TWITTER_CLIENT_ID}:${env.TWITTER_CLIENT_SECRET}`).toString('base64');
-      
+
       const response = await fetch("https://api.twitter.com/2/oauth2/token", {
         method: "POST",
         headers: {
@@ -994,25 +996,25 @@ export class OAuthService {
         }),
         signal: AbortSignal.timeout(15000),
       });
-      
+
       if (!response.ok) {
         const errorData = await response.text();
-        logger.error("Twitter token refresh failed", { 
+        logger.error("Twitter token refresh failed", {
           status: response.status,
           statusText: response.statusText,
-          error: errorData 
+          error: errorData
         });
         return null;
       }
-      
+
       const tokenData = await response.json();
-      logger.info("Twitter token refresh successful", { 
+      logger.info("Twitter token refresh successful", {
         hasAccessToken: !!tokenData.access_token,
         hasRefreshToken: !!tokenData.refresh_token,
         expiresIn: tokenData.expires_in || 7200,
         scope: tokenData.scope
       });
-      
+
       return tokenData;
     } catch (error) {
       logger.error("Twitter token refresh error", {
@@ -1070,16 +1072,16 @@ export class OAuthService {
 
       if (!response.ok) {
         const errorData = await response.text();
-        logger.error("Twitter token exchange failed", { 
+        logger.error("Twitter token exchange failed", {
           status: response.status,
           statusText: response.statusText,
-          error: errorData 
+          error: errorData
         });
         throw new AuthError(`Failed to authenticate with Twitter: ${errorData}`);
       }
 
       const tokenData = await response.json();
-      logger.info("Twitter token exchange successful", { 
+      logger.info("Twitter token exchange successful", {
         hasAccessToken: !!tokenData.access_token,
         hasRefreshToken: !!tokenData.refresh_token,
         expiresIn: tokenData.expires_in,
@@ -1160,7 +1162,7 @@ export class OAuthService {
       };
 
     } catch (error) {
-      logger.error("Failed to get Twitter user data", { 
+      logger.error("Failed to get Twitter user data", {
         error: error instanceof Error ? {
           message: error.message,
           name: error.name,
