@@ -252,15 +252,17 @@ export default function PostingPage() {
     async (files: File[]) => {
       if (selectedPlatforms.length === 0) {
         setPublishError('Please select platforms first');
-        return;
+        return [];
       }
 
       try {
-        // uploadMedia already handles uploading and updating uploadedMedia state
-        await uploadMedia(files, selectedPlatforms);
+        // uploadMedia returns the uploaded media and updates uploadedMedia state
+        const uploadedFiles = await uploadMedia(files, selectedPlatforms);
+        return uploadedFiles;
       } catch (error) {
         console.error('Media upload failed:', error);
         setPublishError('Media upload failed. Please try again.');
+        return [];
       }
     },
     [selectedPlatforms, uploadMedia, setPublishError]
@@ -319,6 +321,8 @@ export default function PostingPage() {
     }
 
     // Upload selected media files first if any
+    let currentUploadedMedia = uploadedMedia;
+
     if (mediaFiles.length > 0) {
       console.log('🔍 DEBUG: Starting media upload process');
       console.log('🔍 DEBUG: mediaFiles.length:', mediaFiles.length);
@@ -328,10 +332,14 @@ export default function PostingPage() {
       );
 
       try {
-        await handleMediaUpload(mediaFiles);
+        const newlyUploadedMedia = await handleMediaUpload(mediaFiles);
+        console.log('🔍 DEBUG: Newly uploaded media:', newlyUploadedMedia);
+
+        // Use the combined media (existing + newly uploaded)
+        currentUploadedMedia = [...uploadedMedia, ...newlyUploadedMedia];
         console.log(
-          '🔍 DEBUG: After handleMediaUpload, uploadedMedia.length:',
-          uploadedMedia.length
+          '🔍 DEBUG: After handleMediaUpload, total media count:',
+          currentUploadedMedia.length
         );
 
         // Clear the selected files after upload
@@ -344,10 +352,10 @@ export default function PostingPage() {
     }
 
     console.log(
-      '🔍 DEBUG: About to create post with uploadedMedia.length:',
-      uploadedMedia.length
+      '🔍 DEBUG: About to create post with media count:',
+      currentUploadedMedia.length
     );
-    console.log('🔍 DEBUG: uploadedMedia data:', uploadedMedia);
+    console.log('🔍 DEBUG: currentUploadedMedia data:', currentUploadedMedia);
 
     // Ensure Instagram posts have media
     if (selectedPlatforms.includes('instagram') && uploadedMedia.length === 0) {
@@ -363,7 +371,7 @@ export default function PostingPage() {
     }
 
     try {
-      const mediaForPost = uploadedMedia.map((m) => ({
+      const mediaForPost = currentUploadedMedia.map((m) => ({
         id: m.id, // Include the database ID
         type: m.type,
         size: m.size, // Use actual size from upload

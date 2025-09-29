@@ -315,19 +315,71 @@ export class PlatformPostingService {
       }
     }
 
+    // Ensure pageAccessToken is a string for TypeScript
+    const validPageAccessToken = String(pageAccessToken)
+
     const postData: any = {
       message: content.text || '',
-      access_token: pageAccessToken
+      access_token: validPageAccessToken
     }
 
+    // Handle media posts - upload media first to get Facebook media IDs
     if (content.media && content.media.length > 0) {
-      // Handle media posts
-      postData.attached_media = content.media.map((media: any) => ({
-        media_fbid: media.id
-      }))
-    }
+      console.log('🔍 Facebook: Uploading media files first', content.media.length);
 
-    const response = await fetch(
+      try {
+        const { postImage, postVideo } = await import('@/lib/facebook');
+        const facebookMediaIds: string[] = [];
+
+        for (const media of content.media) {
+          console.log('🔍 Facebook: Processing media', { url: media.url, type: media.type });
+
+          // Ensure we have valid parameters for Facebook API
+          const mediaCaption = content.text || 'Posted via Social Media Manager';
+          const mediaUrl = media.url;
+
+          // Skip if media URL is not available
+          if (!mediaUrl) {
+            console.warn('❌ Facebook: Skipping media with missing URL');
+            continue;
+          }
+
+          try {
+            if (media.type === 'image') {
+              const result = await postImage(pageId, validPageAccessToken, mediaUrl, mediaCaption);
+              console.log('✅ Facebook: Image uploaded', result);
+              if (result && typeof result === 'object' && 'id' in result) {
+                facebookMediaIds.push(String(result.id));
+              }
+            } else if (media.type === 'video') {
+              // Assert mediaUrl as string since we already checked it's not empty above
+              const result = await postVideo(pageId, validPageAccessToken, mediaUrl as string, mediaCaption);
+              console.log('✅ Facebook: Video uploaded', result);
+              if (result && typeof result === 'object' && 'id' in result) {
+                facebookMediaIds.push(String(result.id));
+              }
+            }
+          } catch (uploadError) {
+            console.error('❌ Facebook: Media upload failed', uploadError);
+            // Continue with other media files
+          }
+        }
+
+        console.log('🔍 Facebook: All media processed, IDs:', facebookMediaIds);
+
+        if (facebookMediaIds.length > 0) {
+          // If we have media, the postImage/postVideo functions already created the posts
+          return {
+            success: true,
+            platformPostId: facebookMediaIds[0], // Use first media ID as post ID
+            url: `https://facebook.com/${facebookMediaIds[0]}`
+          }
+        }
+      } catch (error) {
+        console.error('❌ Facebook: Media processing failed', error);
+        // Fall back to text-only post
+      }
+    } const response = await fetch(
       `https://graph.facebook.com/v23.0/${pageId}/feed`,
       {
         method: 'POST',

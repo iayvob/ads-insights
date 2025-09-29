@@ -101,13 +101,19 @@ export function MediaUploader({
       );
 
       if (invalidFiles.length > 0) {
-        onError?.(
-          `Invalid file type. Please upload only ${acceptedTypes.join(', ')}`
+        const errorMsg = `Invalid file type. Please upload only ${acceptedTypes.join(', ')}`;
+        console.log(
+          '❌ MEDIA UPLOADER:',
+          errorMsg,
+          invalidFiles.map((f) => f.name)
         );
+        onError?.(errorMsg);
         return;
       }
 
-      // Simulate upload progress
+      console.log('✅ MEDIA UPLOADER: All files validated successfully');
+
+      // Simulate upload progress (this is just for UI feedback)
       setIsUploading(true);
       setUploadProgress(0);
 
@@ -117,9 +123,14 @@ export function MediaUploader({
             clearInterval(progressInterval);
             setIsUploading(false);
 
-            // Add to media files
+            // Add to media files for preview
             const newMediaFiles = newFiles.map(createMediaFile);
             setMediaFiles((prev) => [...prev, ...newMediaFiles]);
+
+            console.log(
+              '✅ MEDIA UPLOADER: Files processed for preview',
+              newMediaFiles.length
+            );
 
             // Call onFilesChange outside of state update using setTimeout
             setTimeout(() => {
@@ -132,7 +143,7 @@ export function MediaUploader({
         });
       }, 100);
     },
-    [files, maxFiles, maxSize, onFilesChange]
+    [files, maxFiles, maxSize, acceptedTypes, onFilesChange, onError, disabled]
   );
 
   const handleDrop = useCallback(

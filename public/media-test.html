@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Media Upload Test</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        padding: 20px;
+        max-width: 600px;
+        margin: 0 auto;
+      }
+      .test-section {
+        margin: 20px 0;
+        padding: 20px;
+        border: 1px solid #ccc;
+        border-radius: 5px;
+      }
+      .file-input {
+        margin: 10px 0;
+        padding: 10px;
+        border: 2px dashed #ccc;
+        border-radius: 5px;
+      }
+      .result {
+        margin: 10px 0;
+        padding: 10px;
+        background: #f0f0f0;
+        border-radius: 3px;
+        white-space: pre-wrap;
+      }
+      .button {
+        background: #007bff;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 5px;
+        cursor: pointer;
+        margin: 5px;
+      }
+      .button:hover {
+        background: #0056b3;
+      }
+      .error {
+        background: #ffe6e6;
+        color: #d00;
+      }
+      .success {
+        background: #e6f7e6;
+        color: #080;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Media Upload Debugging</h1>
+
+    <div class="test-section">
+      <h2>1. Test File Selection</h2>
+      <input
+        type="file"
+        id="fileInput"
+        multiple
+        accept="image/*,video/*"
+        class="file-input"
+      />
+      <div id="fileResult" class="result"></div>
+    </div>
+
+    <div class="test-section">
+      <h2>2. Test Media Access API</h2>
+      <button class="button" onclick="testMediaAccess()">
+        Test Media Access
+      </button>
+      <div id="accessResult" class="result"></div>
+    </div>
+
+    <div class="test-section">
+      <h2>3. Test Upload API</h2>
+      <input type="file" id="uploadInput" accept="image/*,video/*" />
+      <button class="button" onclick="testUpload()">Test Upload</button>
+      <div id="uploadResult" class="result"></div>
+    </div>
+
+    <script>
+      // Test file selection
+      document
+        .getElementById('fileInput')
+        .addEventListener('change', function (e) {
+          const result = document.getElementById('fileResult');
+          if (e.target.files.length > 0) {
+            const files = Array.from(e.target.files);
+            result.textContent =
+              `Selected ${files.length} file(s):\n` +
+              files
+                .map((f) => `- ${f.name} (${f.size} bytes, ${f.type})`)
+                .join('\n');
+            result.className = 'result success';
+          } else {
+            result.textContent = 'No files selected';
+            result.className = 'result error';
+          }
+        });
+
+      // Test media access API
+      async function testMediaAccess() {
+        const result = document.getElementById('accessResult');
+        result.textContent = 'Testing media access...';
+        result.className = 'result';
+
+        try {
+          const response = await fetch('/api/debug/media-access');
+          const data = await response.json();
+
+          if (response.ok) {
+            result.textContent = `✅ Media access check passed:\n${JSON.stringify(data, null, 2)}`;
+            result.className = 'result success';
+          } else {
+            result.textContent = `❌ Media access failed:\n${JSON.stringify(data, null, 2)}`;
+            result.className = 'result error';
+          }
+        } catch (error) {
+          result.textContent = `❌ Error: ${error.message}`;
+          result.className = 'result error';
+        }
+      }
+
+      // Test upload API
+      async function testUpload() {
+        const fileInput = document.getElementById('uploadInput');
+        const result = document.getElementById('uploadResult');
+
+        if (!fileInput.files.length) {
+          result.textContent = '❌ Please select a file first';
+          result.className = 'result error';
+          return;
+        }
+
+        const file = fileInput.files[0];
+        result.textContent = `Testing upload of ${file.name}...`;
+        result.className = 'result';
+
+        const formData = new FormData();
+        formData.append('file', file);
+
+        try {
+          const response = await fetch('/api/debug/test-upload', {
+            method: 'POST',
+            body: formData,
+          });
+
+          const data = await response.json();
+
+          if (response.ok) {
+            result.textContent = `✅ Upload test passed:\n${JSON.stringify(data, null, 2)}`;
+            result.className = 'result success';
+          } else {
+            result.textContent = `❌ Upload test failed:\n${JSON.stringify(data, null, 2)}`;
+            result.className = 'result error';
+          }
+        } catch (error) {
+          result.textContent = `❌ Error: ${error.message}`;
+          result.className = 'result error';
+        }
+      }
+    </script>
+  </body>
+</html>

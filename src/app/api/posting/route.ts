@@ -544,9 +544,22 @@ async function publishPost(postId: string, platforms: string[]): Promise<Publish
         try {
           const mediaFile = await MediaFileUtils.findById(mediaId);
           if (mediaFile) {
+            // Convert relative URLs to absolute URLs for external access
+            let absoluteUrl = mediaFile.url;
+            if (absoluteUrl.startsWith('/')) {
+              // Convert old /uploads/ URLs to new /api/uploads/ URLs
+              if (absoluteUrl.startsWith('/uploads/')) {
+                absoluteUrl = absoluteUrl.replace('/uploads/', '/api/uploads/');
+              }
+
+              // Use environment variable or default for absolute URL construction
+              const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+              absoluteUrl = `${baseUrl}${absoluteUrl}`;
+            }
+
             media.push({
               id: mediaFile.id,
-              url: mediaFile.url,
+              url: absoluteUrl,
               type: mediaFile.isVideo ? 'video' : 'image',
               mimeType: mediaFile.fileType
             });

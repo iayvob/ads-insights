@@ -58,11 +58,6 @@ const envSchema = z.object({
   SMTP_PASS: z.string().min(1),
   SMTP_FROM: z.string().email().default("iayvob-support@gmail.com"),
 
-
-  // Cloudinary Configuration (required for media uploads)
-  CLOUDINARY_CLOUD_NAME: z.string().min(1),
-  CLOUDINARY_API_KEY: z.string().min(1),
-  CLOUDINARY_API_SECRET: z.string().min(1),
 })
 
 // Validate environment variables only on the server to avoid client-side Zod errors

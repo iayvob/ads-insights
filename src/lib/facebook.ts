@@ -70,7 +70,35 @@ export async function postImage(
         throw new Error('Failed to get page access token');
     }
 
-    const FacebookAPI = initFacebook(pageAccessToken);
+    // Check if this is a local file URL or external URL
+    if (imageUrl.startsWith('/uploads/') || imageUrl.startsWith('/api/uploads/') || imageUrl.startsWith('http://localhost')) {
+        // Try URL-based upload first (simpler approach)
+        console.log('🔍 Facebook: Trying URL-based photo upload...');
+
+        const fullImageUrl = imageUrl.startsWith('http') ? imageUrl : `http://localhost:3000${imageUrl}`;
+        console.log('🔍 Facebook: Full image URL:', fullImageUrl);
+
+        const FacebookAPI = initFacebook(pageAccessToken);
+        return new Promise((resolve, reject) => {
+            FacebookAPI.api(`/${pageId}/photos`, 'post', {
+                url: fullImageUrl,
+                message: caption,
+                published: true
+            }, (res: any) => {
+                console.log('🔍 Facebook URL upload response:', res);
+                if (!res || res.error) {
+                    console.error('❌ Facebook URL upload failed, trying file upload...', res?.error);
+                    // Fall back to file upload
+                    postImageFromLocalFile(pageId, pageAccessToken, imageUrl, caption)
+                        .then(resolve)
+                        .catch(reject);
+                } else {
+                    console.log('✅ Facebook URL upload successful:', res.id);
+                    resolve(res);
+                }
+            });
+        });
+    } const FacebookAPI = initFacebook(pageAccessToken);
 
     return new Promise((resolve, reject) => {
         FacebookAPI.api(`/${pageId}/photos`, 'post', { url: imageUrl, caption }, (res: any) => {
@@ -92,6 +120,12 @@ export async function postVideo(
         throw new Error('Failed to get page access token');
     }
 
+    // Check if this is a local file URL or external URL
+    if (videoUrl.startsWith('/uploads/') || videoUrl.startsWith('http://localhost')) {
+        // This is a local file, we need to upload it directly
+        return await postVideoFromLocalFile(pageId, pageAccessToken, videoUrl, description);
+    }
+
     const FacebookAPI = initFacebook(pageAccessToken);
 
     return new Promise((resolve, reject) => {
@@ -105,4 +139,275 @@ export async function postVideo(
             }
         );
     });
+}
+
+// Helper function to upload image directly from local file
+async function postImageFromLocalFile(
+    pageId: string,
+    pageAccessToken: string,
+    localImageUrl: string,
+    caption: string
+) {
+    try {
+        console.log('🔍 Facebook local file upload:', { pageId, localImageUrl, caption });
+
+        // Extract the file path from the URL
+        let urlParts: string;
+        if (localImageUrl.startsWith('http://localhost') || localImageUrl.startsWith('https://localhost')) {
+            // Handle full localhost URLs
+            const url = new URL(localImageUrl);
+            urlParts = url.pathname.split('/uploads/')[1];
+        } else {
+            // Handle relative URLs
+            urlParts = localImageUrl.split('/uploads/')[1];
+        }
+
+        if (!urlParts) {
+            throw new Error('Invalid local file URL format');
+        }
+
+        const pathSegments = urlParts.split('/');
+        if (pathSegments.length < 2) {
+            throw new Error('Invalid file path structure');
+        }
+
+        const [userId, filename] = pathSegments;
+        const fs = require('fs');
+        const path = require('path');
+        const formData = require('form-data');
+
+        const uploadsDir = path.join(process.cwd(), 'uploads');
+        const filePath = path.join(uploadsDir, userId, filename);
+
+        console.log('🔍 Facebook file check:', { uploadsDir, userId, filename, filePath });
+
+        if (!fs.existsSync(filePath)) {
+            console.error('❌ Facebook local file not found:', filePath);
+            throw new Error(`Local file not found: ${filePath}`);
+        }
+
+        console.log('✅ Facebook file exists, uploading to Facebook...');
+
+        // First test if basic posting works to verify the access token
+        console.log('🧪 Testing Facebook access token with simple post first...');
+        try {
+            const testResponse = await fetch(`https://graph.facebook.com/v23.0/${pageId}/feed`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    message: `Test: File upload attempt for ${filename}`,
+                    access_token: pageAccessToken
+                })
+            });
+            const testResult = await testResponse.json();
+            console.log('🧪 Facebook access token test result:', testResult.error ? 'FAILED' : 'SUCCESS');
+
+            if (testResult.error) {
+                throw new Error(`Access token test failed: ${testResult.error.message}`);
+            }
+        } catch (testError) {
+            console.error('❌ Facebook access token test failed:', testError);
+            throw testError;
+        }
+
+        console.log('🔍 Facebook API details:', {
+            pageId,
+            pageAccessToken: pageAccessToken ? `${pageAccessToken.substring(0, 20)}...` : 'null',
+            caption,
+            apiUrl: `https://graph.facebook.com/v23.0/${pageId}/photos`
+        });
+
+        // Try using the Facebook SDK approach instead of raw fetch
+        const FacebookAPI = initFacebook(pageAccessToken);
+
+        console.log('🔍 Facebook uploading via SDK...');
+
+        try {
+            const result = await new Promise((resolve, reject) => {
+                FacebookAPI.api(`/${pageId}/photos`, 'post', {
+                    source: fs.createReadStream(filePath),
+                    message: caption,
+                    published: true
+                }, (res: any) => {
+                    console.log('🔍 Facebook SDK upload response:', res);
+                    if (!res || res.error) {
+                        console.error('❌ Facebook SDK error:', res?.error);
+                        reject(res?.error || new Error('Facebook SDK upload failed'));
+                    } else {
+                        console.log('✅ Facebook image uploaded successfully via SDK:', res.id);
+                        resolve(res);
+                    }
+                });
+            });
+            return result;
+        } catch (sdkError) {
+            console.error('🔄 SDK approach failed, trying direct API approach...', sdkError);
+
+            // Fallback to direct API with different parameters
+            return await uploadPhotoDirectAPI(pageId, pageAccessToken, filePath, caption);
+        }
+    } catch (error) {
+        console.error('Error uploading image to Facebook:', error);
+        throw error;
+    }
+}
+
+// Direct API upload as fallback
+async function uploadPhotoDirectAPI(pageId: string, pageAccessToken: string, filePath: string, caption: string) {
+    try {
+        const fs = require('fs');
+        const formData = require('form-data');
+
+        console.log('🔍 Facebook: Trying direct API approach...');
+
+        // Try without the published parameter first
+        const form = new formData();
+        form.append('source', fs.createReadStream(filePath));
+        form.append('message', caption);
+        form.append('access_token', pageAccessToken);
+
+        const response = await fetch(`https://graph.facebook.com/v23.0/${pageId}/photos`, {
+            method: 'POST',
+            body: form,
+        });
+
+        const result = await response.json();
+        console.log('🔍 Facebook direct API response:', result);
+
+        if (result.error) {
+            // Try alternate approach: upload unpublished first, then publish
+            console.log('🔄 Trying unpublished upload approach...');
+            return await uploadPhotoUnpublished(pageId, pageAccessToken, filePath, caption);
+        }
+
+        console.log('✅ Facebook direct API upload successful:', result.id);
+        return result;
+    } catch (error) {
+        console.error('Direct API upload failed:', error);
+        throw error;
+    }
+}
+
+// Try uploading as unpublished first
+async function uploadPhotoUnpublished(pageId: string, pageAccessToken: string, filePath: string, caption: string) {
+    try {
+        const fs = require('fs');
+        const formData = require('form-data');
+
+        console.log('🔍 Facebook: Trying unpublished upload...');
+
+        const form = new formData();
+        form.append('source', fs.createReadStream(filePath));
+        form.append('message', caption);
+        form.append('published', 'false');
+        form.append('access_token', pageAccessToken);
+
+        const response = await fetch(`https://graph.facebook.com/v23.0/${pageId}/photos`, {
+            method: 'POST',
+            body: form,
+        });
+
+        const result = await response.json();
+        console.log('🔍 Facebook unpublished upload response:', result);
+
+        if (result.error) {
+            throw new Error(result.error.message || 'All upload methods failed');
+        }
+
+        // If successful, publish the photo
+        if (result.id) {
+            console.log('🔍 Facebook: Publishing photo...', result.id);
+            const publishResponse = await fetch(`https://graph.facebook.com/v23.0/${result.id}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    is_published: true,
+                    access_token: pageAccessToken
+                })
+            });
+
+            const publishResult = await publishResponse.json();
+            console.log('🔍 Facebook publish response:', publishResult);
+        }
+
+        console.log('✅ Facebook unpublished upload successful:', result.id);
+        return result;
+    } catch (error) {
+        console.error('Error uploading image to Facebook:', error);
+        throw error;
+    }
+}
+
+// Helper function to upload video directly from local file  
+async function postVideoFromLocalFile(
+    pageId: string,
+    pageAccessToken: string,
+    localVideoUrl: string,
+    description: string
+) {
+    try {
+        console.log('🔍 Facebook local video upload:', { pageId, localVideoUrl, description });
+
+        // Extract the file path from the URL
+        let urlParts: string;
+        if (localVideoUrl.startsWith('http://localhost') || localVideoUrl.startsWith('https://localhost')) {
+            // Handle full localhost URLs
+            const url = new URL(localVideoUrl);
+            urlParts = url.pathname.split('/uploads/')[1];
+        } else {
+            // Handle relative URLs
+            urlParts = localVideoUrl.split('/uploads/')[1];
+        }
+
+        if (!urlParts) {
+            throw new Error('Invalid local video URL format');
+        }
+
+        const pathSegments = urlParts.split('/');
+        if (pathSegments.length < 2) {
+            throw new Error('Invalid video file path structure');
+        }
+
+        const [userId, filename] = pathSegments;
+        const fs = require('fs');
+        const path = require('path');
+        const formData = require('form-data');
+
+        const uploadsDir = path.join(process.cwd(), 'uploads');
+        const filePath = path.join(uploadsDir, userId, filename);
+
+        console.log('🔍 Facebook video file check:', { uploadsDir, userId, filename, filePath });
+
+        if (!fs.existsSync(filePath)) {
+            console.error('❌ Facebook local video file not found:', filePath);
+            throw new Error(`Local video file not found: ${filePath}`);
+        }
+
+        console.log('✅ Facebook video file exists, uploading to Facebook...');
+
+        // Create form data and upload directly to Facebook
+        const form = new formData();
+        form.append('source', fs.createReadStream(filePath));
+        form.append('description', description);
+        form.append('access_token', pageAccessToken);
+
+        const response = await fetch(`https://graph.facebook.com/v23.0/${pageId}/videos`, {
+            method: 'POST',
+            body: form,
+        });
+
+        const result = await response.json();
+        console.log('🔍 Facebook video upload response:', result);
+
+        if (result.error) {
+            console.error('❌ Facebook video API error:', result.error);
+            throw new Error(result.error.message || 'Facebook video upload failed');
+        }
+
+        console.log('✅ Facebook video uploaded successfully:', result.id);
+        return result;
+    } catch (error) {
+        console.error('Error uploading video to Facebook:', error);
+        throw error;
+    }
 }

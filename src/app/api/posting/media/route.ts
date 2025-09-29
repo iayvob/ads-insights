@@ -2,46 +2,43 @@ import { NextRequest, NextResponse } from "next/server"
 import { ServerSessionService } from "@/services/session-server"
 import { validatePremiumAccess } from "@/lib/subscription-access"
 import { MediaUploadResponse, PlatformConstraints } from "@/validations/posting-types"
-import { v2 as cloudinary } from 'cloudinary'
 import sharp from "sharp"
 import { createHash } from "crypto"
-import { writeFile } from "fs/promises"
-import { unlink } from "fs/promises"
+import { writeFile, readFile } from "fs/promises"
+import { unlink, mkdir } from "fs/promises"
 import { join } from "path"
 import { tmpdir } from "os"
 import { MediaFileUtils } from "@/utils/media-file-utils"
-import { env } from "@/validations/env"
+import { existsSync } from "fs"
 
-// Initialize Cloudinary
-cloudinary.config({
-  cloud_name: env.CLOUDINARY_CLOUD_NAME || "",
-  api_key: env.CLOUDINARY_API_KEY || "",
-  api_secret: env.CLOUDINARY_API_SECRET || "",
-  secure: true
-});
-
-// Debug Cloudinary configuration
-console.log('Cloudinary config:', {
-  hasCloudName: !!env.CLOUDINARY_CLOUD_NAME,
-  hasApiKey: !!env.CLOUDINARY_API_KEY,
-  hasApiSecret: !!env.CLOUDINARY_API_SECRET,
-  cloudName: env.CLOUDINARY_CLOUD_NAME?.substring(0, 5) + '...' || 'NOT_SET'
-});
+// Create uploads directory if it doesn't exist
+const uploadsDir = join(process.cwd(), 'uploads')
+if (!existsSync(uploadsDir)) {
+  mkdir(uploadsDir, { recursive: true }).catch(console.error)
+}
 
 export async function POST(request: NextRequest) {
   try {
+    console.log('🔍 MEDIA UPLOAD: Starting media upload request');
+
     // Get and validate session
     const session = await ServerSessionService.getSession(request)
     if (!session?.userId) {
+      console.log('❌ MEDIA UPLOAD: No session found');
       return NextResponse.json(
         { success: false, error: "Authentication required" },
         { status: 401 }
       )
     }
 
+    console.log('✅ MEDIA UPLOAD: Session found', { userId: session.userId, plan: session.plan });
+
     // Validate premium access for media upload
     const premiumAccess = await validatePremiumAccess(session.userId, "posting")
+    console.log('🔍 MEDIA UPLOAD: Premium access check result', premiumAccess);
+
     if (!premiumAccess.hasAccess) {
+      console.log('❌ MEDIA UPLOAD: Premium access denied');
       return NextResponse.json(
         {
           success: false,
@@ -57,7 +54,14 @@ export async function POST(request: NextRequest) {
     const files = formData.getAll("files") as File[]
     const platforms = JSON.parse(formData.get("platforms") as string || "[]")
 
+    console.log('🔍 MEDIA UPLOAD: Parsed form data', {
+      filesCount: files.length,
+      platforms,
+      fileSizes: files.map(f => ({ name: f.name, size: f.size, type: f.type }))
+    });
+
     if (!files || files.length === 0) {
+      console.log('❌ MEDIA UPLOAD: No files provided');
       return NextResponse.json(
         { success: false, error: "No files provided" },
         { status: 400 }
@@ -66,7 +70,13 @@ export async function POST(request: NextRequest) {
 
     // Validate files
     const validationErrors = validateMediaFiles(files, platforms)
+    console.log('🔍 MEDIA UPLOAD: File validation result', {
+      validationErrors: validationErrors.length,
+      errors: validationErrors
+    });
+
     if (validationErrors.length > 0) {
+      console.log('❌ MEDIA UPLOAD: File validation failed');
       return NextResponse.json(
         {
           success: false,
@@ -80,13 +90,19 @@ export async function POST(request: NextRequest) {
 
     // Process uploads
     const uploadedFiles: MediaUploadResponse[] = []
+    console.log('🔍 MEDIA UPLOAD: Starting file processing for', files.length, 'files');
 
     for (const file of files) {
       try {
+        console.log('🔍 MEDIA UPLOAD: Processing file', file.name);
         const uploadResult = await processFileUpload(file, session.userId)
+        console.log('✅ MEDIA UPLOAD: File uploaded successfully', {
+          filename: file.name,
+          uploadId: uploadResult.id
+        });
         uploadedFiles.push(uploadResult)
       } catch (error) {
-        console.error(`Failed to upload file ${file.name}:`, error)
+        console.error(`❌ MEDIA UPLOAD: Failed to upload file ${file.name}:`, error)
         return NextResponse.json(
           {
             success: false,
@@ -238,7 +254,7 @@ function validateSingleFile(file: File, platforms: string[], index: number): any
 }
 
 /**
- * Process and upload a file to Cloudinary and store metadata in database
+ * Process and upload a file locally and store metadata in database
  */
 async function processFileUpload(file: File, userId: string): Promise<MediaUploadResponse> {
   // 1. Generate unique filename with user ID prefix for security
@@ -247,19 +263,30 @@ async function processFileUpload(file: File, userId: string): Promise<MediaUploa
     .digest('hex')
     .slice(0, 10)
 
-  const uniqueFilename = `${userId}/${fileHash}-${Date.now()}`
+  const uniqueFilename = `${userId}-${fileHash}-${Date.now()}.${file.name.split('.').pop()}`
   const isVideo = file.type.startsWith("video/")
 
-  // 2. Convert File to Buffer and save temporarily
+  // 2. Create user directory and save file permanently
+  const userUploadsDir = join(uploadsDir, userId)
+  if (!existsSync(userUploadsDir)) {
+    await mkdir(userUploadsDir, { recursive: true })
+  }
+
+  const filePath = join(userUploadsDir, uniqueFilename)
+
+  // 3. Convert File to Buffer and save to local filesystem
   const arrayBuffer = await file.arrayBuffer()
   const buffer = Buffer.from(arrayBuffer)
 
-  // Save the file temporarily to disk (needed for Cloudinary upload)
-  const tempFilePath = join(tmpdir(), `upload-${fileHash}.tmp`)
-  await writeFile(tempFilePath, buffer)
+  console.log('🔍 MEDIA UPLOAD: Writing file to:', filePath, 'Size:', buffer.length);
+  await writeFile(filePath, buffer)
+
+  console.log('🔍 MEDIA UPLOAD: File written, checking existence...');
+  const fileExists = existsSync(filePath);
+  console.log('🔍 MEDIA UPLOAD: File exists after write:', fileExists);
 
   try {
-    // 3. Extract metadata from file
+    // 4. Extract metadata from file
     let dimensions: { width: number; height: number } | undefined
     let duration: number | undefined
     let thumbnailUrl: string | undefined
@@ -279,92 +306,58 @@ async function processFileUpload(file: File, userId: string): Promise<MediaUploa
       }
     }
 
-    // 4. Upload to Cloudinary
-    const uploadOptions = {
-      folder: `adinsights/${userId}`,
-      public_id: fileHash,
-      resource_type: isVideo ? "video" : "image",
-      overwrite: true,
-      use_filename: false,
-    }
+    // 5. Generate local file URL that matches our working file serving route
+    const fileUrl = `/api/uploads/${userId}/${uniqueFilename}`
 
-    const uploadResult = await new Promise<any>((resolve, reject) => {
-      const uploadStream = cloudinary.uploader.upload_stream(
-        uploadOptions,
-        (error: any, result: any) => {
-          if (error) return reject(error)
-          return resolve(result)
-        }
-      )
+    // 6. Generate thumbnail for display (optional)
+    if (!isVideo && dimensions) {
+      // Create a thumbnail using sharp for images
+      try {
+        const thumbnailFilename = `thumb-${uniqueFilename}`
+        const thumbnailPath = join(userUploadsDir, thumbnailFilename)
 
-      // Use file stream to upload
-      const fs = require('fs')
-      const readStream = fs.createReadStream(tempFilePath)
-      readStream.pipe(uploadStream)
-    })
+        await sharp(buffer)
+          .resize(300, 300, { fit: 'cover' })
+          .jpeg({ quality: 80 })
+          .toFile(thumbnailPath)
 
-    // 5. Clean up temp file
-    await unlink(tempFilePath)
-
-    console.log('Cloudinary upload result:', {
-      public_id: uploadResult.public_id,
-      secure_url: uploadResult.secure_url,
-      url: uploadResult.url,
-      resource_type: uploadResult.resource_type,
-      hasSecureUrl: !!uploadResult.secure_url
-    });
-
-    // 6. Extract dimensions and metadata from Cloudinary response
-    if (uploadResult.width && uploadResult.height) {
-      dimensions = {
-        width: uploadResult.width,
-        height: uploadResult.height
+        thumbnailUrl = `/api/uploads/${userId}/${thumbnailFilename}`
+      } catch (error) {
+        console.error('Error creating thumbnail:', error)
+        thumbnailUrl = fileUrl // Fallback to original image
       }
-    }
-
-    if (isVideo && uploadResult.duration) {
-      duration = uploadResult.duration
-    }
-
-    // Generate thumbnail URL for images and videos
-    if (isVideo) {
-      thumbnailUrl = cloudinary.url(uploadResult.public_id, {
-        resource_type: 'video',
-        format: 'jpg',
-        secure: true,
-        transformation: [
-          { width: 300, height: 300, crop: 'fill' }
-        ]
-      })
     } else {
-      thumbnailUrl = cloudinary.url(uploadResult.public_id, {
-        secure: true,
-        transformation: [
-          { width: 300, height: 300, crop: 'fill' }
-        ]
-      })
+      thumbnailUrl = fileUrl // For videos, use original file as thumbnail for now
     }
+
+    console.log('Local file upload result:', {
+      fileKey: uniqueFilename,
+      url: fileUrl,
+      filePath,
+      thumbnailUrl,
+      hasFile: existsSync(filePath)
+    });
 
     // 7. Store file info in the database using our utility
     const mediaFile = await MediaFileUtils.create({
       userId,
       filename: file.name,
-      fileKey: uploadResult.public_id,
+      fileKey: uniqueFilename, // Store local filename instead of Cloudinary public_id
       fileType: file.type,
       fileSize: file.size,
-      url: uploadResult.secure_url,
+      url: fileUrl, // Local file URL
       isVideo,
       width: dimensions?.width,
       height: dimensions?.height,
       duration,
       thumbnailUrl,
-      resourceType: uploadResult.resource_type
+      resourceType: isVideo ? 'video' : 'image'
     })
 
     // 8. Return media upload response
     return {
       id: mediaFile.id,
-      url: uploadResult.secure_url,
+      url: fileUrl,
       filename: file.name,
       type: isVideo ? "video" : "image",
       size: file.size,
@@ -372,16 +365,16 @@ async function processFileUpload(file: File, userId: string): Promise<MediaUploa
       duration
     }
   } catch (error) {
-    // Clean up temp file in case of error
+    // Clean up file in case of error
     try {
-      await unlink(tempFilePath)
+      await unlink(filePath)
     } catch { }
     throw error
   }
 }
 
 /**
- * Delete a media file from Cloudinary and remove from database
+ * Delete a media file from local storage and remove from database
  */
 async function deleteMediaFile(mediaId: string, userId: string): Promise<boolean> {
   try {
@@ -392,16 +385,31 @@ async function deleteMediaFile(mediaId: string, userId: string): Promise<boolean
       return false // Not found or not authorized
     }
 
-    // 2. Delete from Cloudinary
-    await cloudinary.uploader.destroy(
-      mediaFile.fileKey,
-      {
-        resource_type: (mediaFile.resourceType as 'image' | 'video' | 'raw') ||
-          (mediaFile.isVideo ? 'video' : 'image')
-      }
-    )
+    // 2. Delete from local filesystem
+    const userUploadsDir = join(uploadsDir, userId)
+    const filePath = join(userUploadsDir, mediaFile.fileKey)
 
-    // 3. Remove from database using utility
+    try {
+      await unlink(filePath)
+    } catch (error) {
+      console.warn(`File not found on disk: ${filePath}`)
+      // Continue with database cleanup even if file doesn't exist
+    }
+
+    // 3. Delete thumbnail if it exists
+    if (mediaFile.thumbnailUrl && mediaFile.thumbnailUrl.includes('thumb-')) {
+      const thumbnailFilename = mediaFile.thumbnailUrl.split('/').pop()
+      if (thumbnailFilename) {
+        const thumbnailPath = join(userUploadsDir, thumbnailFilename)
+        try {
+          await unlink(thumbnailPath)
+        } catch (error) {
+          console.warn(`Thumbnail not found on disk: ${thumbnailPath}`)
+        }
+      }
+    }
+
+    // 4. Remove from database using utility
     await MediaFileUtils.deleteById(mediaId)
 
     return true
