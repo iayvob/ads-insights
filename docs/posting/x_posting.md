@@ -45,8 +45,8 @@ import { TwitterApi } from 'twitter-api-v2';
 
 export function getTwitterAppClient() {
   return new TwitterApi({
-    appKey: process.env.TWITTER_CONSUMER_KEY!,
-    appSecret: process.env.TWITTER_CONSUMER_SECRET!,
+    appKey: env.TWITTER_API_KEY!,
+    appSecret: env.TWITTER_API_SECRET!,
   });
 }
 ```
@@ -132,8 +132,8 @@ export default async function handler(
     });
 
     const client = new TwitterApi({
-      appKey: process.env.TWITTER_CONSUMER_KEY!,
-      appSecret: process.env.TWITTER_CONSUMER_SECRET!,
+      appKey: process.env.TWITTER_API_KEY!,
+      appSecret: process.env.TWITTER_API_SECRET!,
       accessToken: twitterAccess,
       accessSecret: twitterSecret,
     });

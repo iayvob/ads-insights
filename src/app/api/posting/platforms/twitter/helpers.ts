@@ -2,15 +2,16 @@
 import { NextRequest } from "next/server";
 import { ServerSessionService } from "@/services/session-server";
 import { prisma } from "@/config/database/prisma";
-import { getTwitterUserClient } from "@/lib/twitter";
+import { getTwitterUserClient, getTwitterV2Client } from "@/lib/twitter";
 
 export interface TwitterConnection {
     accessToken: string;
-    accessTokenSecret: string;
+    accessTokenSecret?: string; // Optional for OAuth 2.0 Bearer tokens
     userId: string;
     username: string;
     connected: boolean;
     expiresAt?: Date;
+    authType: 'oauth1' | 'oauth2'; // Track authentication type
 }
 
 export async function getTwitterConnection(request: NextRequest): Promise<TwitterConnection | null> {
@@ -37,10 +38,9 @@ export async function getTwitterConnection(request: NextRequest): Promise<Twitte
             return null;
         }
 
-        // For Twitter posting, we'll need to use OAuth 1.0a app credentials
-        // The user's OAuth 2.0 token is stored, but posting requires OAuth 1.0a
-        // We'll get the access token secret from the user's session or generate it
-        const accessTokenSecret = authProvider.refreshToken || ''; // Use refreshToken field for OAuth 1.0a secret
+        // Determine if this is OAuth 1.0a or OAuth 2.0 based on refreshToken presence
+        const isOAuth1 = !!authProvider.refreshToken;
+        const accessTokenSecret = isOAuth1 ? authProvider.refreshToken || undefined : undefined;
 
         return {
             accessToken: authProvider.accessToken,
@@ -48,7 +48,8 @@ export async function getTwitterConnection(request: NextRequest): Promise<Twitte
             userId: authProvider.providerId || '',
             username: authProvider.username || '',
             connected: true,
-            expiresAt: authProvider.expiresAt || undefined
+            expiresAt: authProvider.expiresAt || undefined,
+            authType: isOAuth1 ? 'oauth1' : 'oauth2'
         };
     } catch (error) {
         console.error("Error fetching Twitter connection:", error);
@@ -83,14 +84,23 @@ export async function postToTwitter(params: {
         alt?: string;
     }>;
     accessToken: string;
-    accessTokenSecret: string;
+    accessTokenSecret?: string;
     userId: string;
+    authType: 'oauth1' | 'oauth2';
 }) {
-    const { content, media, accessToken, accessTokenSecret } = params;
+    const { content, media, accessToken, accessTokenSecret, authType } = params;
 
     try {
-        // Create Twitter client with user tokens
-        const client = getTwitterUserClient(accessToken, accessTokenSecret);
+        let client;
+
+        // Create appropriate client based on auth type
+        if (authType === 'oauth2') {
+            // Use OAuth 2.0 Bearer token for v2 API
+            client = getTwitterV2Client(accessToken);
+        } else {
+            // Use OAuth 1.0a for legacy support
+            client = getTwitterUserClient(accessToken, accessTokenSecret);
+        }
 
         let mediaIds: string[] = [];
 
@@ -107,34 +117,24 @@ export async function postToTwitter(params: {
                         continue;
                     }
 
-                    // Convert to base64 as required by the documentation
+                    // Convert to buffer for upload
                     const mediaBuffer = await mediaResponse.arrayBuffer();
-                    const base64Data = Buffer.from(mediaBuffer).toString('base64');
+                    const buffer = Buffer.from(mediaBuffer);
 
-                    // Determine media type for Twitter API
-                    let mediaType: 'png' | 'jpg' | 'gif' | 'mp4' = 'png';
-                    if (mediaItem.mimeType) {
-                        if (mediaItem.mimeType.includes('jpeg') || mediaItem.mimeType.includes('jpg')) {
-                            mediaType = 'jpg';
-                        } else if (mediaItem.mimeType.includes('gif')) {
-                            mediaType = 'gif';
-                        } else if (mediaItem.mimeType.includes('mp4') || mediaItem.mimeType.includes('video')) {
-                            mediaType = 'mp4';
-                        }
-                    }
+                    console.log(`Uploading ${mediaItem.type} with size ${buffer.length} bytes`);
 
-                    console.log(`Uploading ${mediaItem.type} with type ${mediaType}`);
-
-                    // Upload media using twitter-api-v2
-                    const mediaId = await client.v1.uploadMedia(base64Data, {
-                        type: mediaType,
+                    // Upload media using v1.1 endpoint (works with both auth types)
+                    const mediaId = await client.v1.uploadMedia(buffer, {
+                        mimeType: mediaItem.mimeType,
                         target: 'tweet'
                     });
 
                     // Add alt text if provided
                     if (mediaItem.alt && mediaId) {
                         try {
-                            await client.v1.createMediaMetadata(mediaId, { alt_text: { text: mediaItem.alt } });
+                            await client.v1.createMediaMetadata(mediaId, {
+                                alt_text: { text: mediaItem.alt }
+                            });
                         } catch (altError) {
                             console.warn('Failed to add alt text:', altError);
                         }
@@ -152,23 +152,24 @@ export async function postToTwitter(params: {
             console.log(`Successfully uploaded ${mediaIds.length} out of ${media.length} media files`);
         }
 
-        // Post tweet using twitter-api-v2
-        const tweetOptions: any = {
+        // Post tweet using v2 API with proper format
+        const tweetData: any = {
             text: content,
         };
 
         // Add media IDs if any were uploaded
         if (mediaIds.length > 0) {
-            tweetOptions.media = { media_ids: mediaIds };
+            tweetData.media = { media_ids: mediaIds };
         }
 
         console.log('Posting tweet with options:', {
-            hasText: !!tweetOptions.text,
-            textLength: tweetOptions.text?.length || 0,
+            hasText: !!tweetData.text,
+            textLength: tweetData.text?.length || 0,
             mediaCount: mediaIds.length
         });
 
-        const tweet = await client.v2.tweet(tweetOptions);
+        // Use v2 API for posting
+        const tweet = await client.v2.tweet(tweetData);
 
         if (tweet.data) {
             const tweetId = tweet.data.id;
@@ -181,7 +182,7 @@ export async function postToTwitter(params: {
                 platformPostId: tweetId,
                 status: "published",
                 publishedAt: new Date().toISOString(),
-                url: `https://twitter.com/${username}/status/${tweetId}`,
+                url: `https://x.com/${username}/status/${tweetId}`,
                 type: mediaIds.length > 0 ? "media_tweet" : "text_tweet",
                 success: true
             };
@@ -213,6 +214,9 @@ export async function postToTwitter(params: {
                     break;
                 case 89:
                     errorMessage = "Invalid or expired Twitter token - please reconnect your account";
+                    break;
+                case 403:
+                    errorMessage = "Twitter API access forbidden - check your app permissions and authentication";
                     break;
                 default:
                     errorMessage = `Twitter API error (${error.code}): ${error.message}`;

@@ -170,7 +170,8 @@ export async function POST(request: NextRequest) {
       media,
       accessToken: twitterConnection.accessToken,
       accessTokenSecret: twitterConnection.accessTokenSecret,
-      userId: session.userId
+      userId: session.userId,
+      authType: twitterConnection.authType
     })
 
     if (result.success) {
