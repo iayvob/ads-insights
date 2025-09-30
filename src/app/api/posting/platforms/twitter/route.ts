@@ -171,7 +171,8 @@ export async function POST(request: NextRequest) {
       accessToken: twitterConnection.accessToken,
       accessTokenSecret: twitterConnection.accessTokenSecret,
       userId: session.userId,
-      authType: twitterConnection.authType
+      authType: (twitterConnection.authType as 'oauth2') || 'oauth2',
+      request
     })
 
     if (result.success) {
