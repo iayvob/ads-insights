@@ -1,5 +1,6 @@
 // Facebook Graph API Client - Following the documentation exactly
 import FB from 'fb';
+import { env } from '@/validations/env';
 
 export function initFacebook(accessToken: string) {
     (FB as any).options({ version: 'v23.0' }); // Updated to latest stable version
@@ -75,7 +76,7 @@ export async function postImage(
         // Try URL-based upload first (simpler approach)
         console.log('🔍 Facebook: Trying URL-based photo upload...');
 
-        const fullImageUrl = imageUrl.startsWith('http') ? imageUrl : `http://localhost:3000${imageUrl}`;
+        const fullImageUrl = imageUrl.startsWith('http') ? imageUrl : `${env.APP_URL}${imageUrl}`;
         console.log('🔍 Facebook: Full image URL:', fullImageUrl);
 
         const FacebookAPI = initFacebook(pageAccessToken);
@@ -121,7 +122,7 @@ export async function postVideo(
     }
 
     // Check if this is a local file URL or external URL
-    if (videoUrl.startsWith('/uploads/') || videoUrl.startsWith('http://localhost')) {
+    if (videoUrl.startsWith('/uploads/') || videoUrl.startsWith('/api/uploads/') || videoUrl.startsWith(env.APP_URL)) {
         // This is a local file, we need to upload it directly
         return await postVideoFromLocalFile(pageId, pageAccessToken, videoUrl, description);
     }
@@ -152,14 +153,21 @@ async function postImageFromLocalFile(
         console.log('🔍 Facebook local file upload:', { pageId, localImageUrl, caption });
 
         // Extract the file path from the URL
-        let urlParts: string;
-        if (localImageUrl.startsWith('http://localhost') || localImageUrl.startsWith('https://localhost')) {
-            // Handle full localhost URLs
+        let urlParts: string | null = null;
+        if (localImageUrl.startsWith(env.APP_URL)) {
+            // Handle configured APP_URL
             const url = new URL(localImageUrl);
-            urlParts = url.pathname.split('/uploads/')[1];
+            const pathMatch = url.pathname.match(/\/(api\/)?uploads\/(.+)/);
+            urlParts = pathMatch ? pathMatch[2] : null;
+        } else if (localImageUrl.startsWith('http://localhost') || localImageUrl.startsWith('https://localhost')) {
+            // Handle localhost URLs for development
+            const url = new URL(localImageUrl);
+            const pathMatch = url.pathname.match(/\/(api\/)?uploads\/(.+)/);
+            urlParts = pathMatch ? pathMatch[2] : null;
         } else {
             // Handle relative URLs
-            urlParts = localImageUrl.split('/uploads/')[1];
+            const pathMatch = localImageUrl.match(/\/(api\/)?uploads\/(.+)/);
+            urlParts = pathMatch ? pathMatch[2] : null;
         }
 
         if (!urlParts) {
@@ -349,14 +357,21 @@ async function postVideoFromLocalFile(
         console.log('🔍 Facebook local video upload:', { pageId, localVideoUrl, description });
 
         // Extract the file path from the URL
-        let urlParts: string;
-        if (localVideoUrl.startsWith('http://localhost') || localVideoUrl.startsWith('https://localhost')) {
-            // Handle full localhost URLs
+        let urlParts: string | null = null;
+        if (localVideoUrl.startsWith(env.APP_URL)) {
+            // Handle configured APP_URL
             const url = new URL(localVideoUrl);
-            urlParts = url.pathname.split('/uploads/')[1];
+            const pathMatch = url.pathname.match(/\/(api\/)?uploads\/(.+)/);
+            urlParts = pathMatch ? pathMatch[2] : null;
+        } else if (localVideoUrl.startsWith('http://localhost') || localVideoUrl.startsWith('https://localhost')) {
+            // Handle localhost URLs for development
+            const url = new URL(localVideoUrl);
+            const pathMatch = url.pathname.match(/\/(api\/)?uploads\/(.+)/);
+            urlParts = pathMatch ? pathMatch[2] : null;
         } else {
             // Handle relative URLs
-            urlParts = localVideoUrl.split('/uploads/')[1];
+            const pathMatch = localVideoUrl.match(/\/(api\/)?uploads\/(.+)/);
+            urlParts = pathMatch ? pathMatch[2] : null;
         }
 
         if (!urlParts) {

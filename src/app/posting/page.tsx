@@ -168,12 +168,7 @@ export default function PostingPage() {
     const validation = validateContent(postContent, selectedPlatforms);
     const allErrors = [...validation.errors];
 
-    // Instagram validation for media requirement
-    if (selectedPlatforms.includes('instagram') && uploadedMedia.length === 0) {
-      allErrors.push(
-        'Instagram requires at least one media file (image/video)'
-      );
-    }
+    // Note: Instagram media validation is now handled in handlePublish to include both uploaded and selected files
 
     // Amazon validation for brand content and ASINs
     if (selectedPlatforms.includes('amazon')) {
@@ -206,7 +201,6 @@ export default function PostingPage() {
     postContent,
     selectedPlatforms,
     validateContent,
-    uploadedMedia.length,
     amazonBrandContent.brandName,
     amazonProductASINs.length,
     tiktokContent.advertiserId,
@@ -357,9 +351,14 @@ export default function PostingPage() {
     );
     console.log('🔍 DEBUG: currentUploadedMedia data:', currentUploadedMedia);
 
-    // Ensure Instagram posts have media
-    if (selectedPlatforms.includes('instagram') && uploadedMedia.length === 0) {
-      setPublishError('Instagram posts require at least one media file');
+    // Ensure Instagram posts have media (check after all media processing)
+    if (
+      selectedPlatforms.includes('instagram') &&
+      currentUploadedMedia.length === 0
+    ) {
+      setPublishError(
+        'Instagram posts require at least one media file (image/video)'
+      );
       return;
     }
 
@@ -844,12 +843,12 @@ export default function PostingPage() {
                 className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white shadow-lg"
                 disabled={
                   shouldDisableContent ||
-                  (!postContent.trim() && uploadedMedia.length === 0) ||
+                  (!postContent.trim() &&
+                    uploadedMedia.length === 0 &&
+                    mediaFiles.length === 0) ||
                   selectedPlatforms.length === 0 ||
                   isPosting ||
-                  validationErrors.length > 0 ||
-                  (selectedPlatforms.includes('instagram') &&
-                    uploadedMedia.length === 0)
+                  validationErrors.length > 0
                 }
                 onClick={() => handlePublish(false)}
               >
@@ -872,7 +871,9 @@ export default function PostingPage() {
                 className="w-full border-gray-300 hover:bg-gray-50"
                 disabled={
                   shouldDisableContent ||
-                  (!postContent.trim() && uploadedMedia.length === 0) ||
+                  (!postContent.trim() &&
+                    uploadedMedia.length === 0 &&
+                    mediaFiles.length === 0) ||
                   isPosting
                 }
                 onClick={() => handlePublish(true)}

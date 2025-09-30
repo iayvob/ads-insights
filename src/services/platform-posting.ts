@@ -346,14 +346,13 @@ export class PlatformPostingService {
 
           try {
             if (media.type === 'image') {
-              const result = await postImage(pageId, validPageAccessToken, mediaUrl, mediaCaption);
+              const result = await postImage(pageId, validPageAccessToken, mediaUrl!, mediaCaption);
               console.log('✅ Facebook: Image uploaded', result);
               if (result && typeof result === 'object' && 'id' in result) {
                 facebookMediaIds.push(String(result.id));
               }
             } else if (media.type === 'video') {
-              // Assert mediaUrl as string since we already checked it's not empty above
-              const result = await postVideo(pageId, validPageAccessToken, mediaUrl as string, mediaCaption);
+              const result = await postVideo(pageId, validPageAccessToken, mediaUrl!, mediaCaption);
               console.log('✅ Facebook: Video uploaded', result);
               if (result && typeof result === 'object' && 'id' in result) {
                 facebookMediaIds.push(String(result.id));
@@ -415,10 +414,9 @@ export class PlatformPostingService {
   ) {
     const { accessToken, userId } = connection
 
-    // Instagram Graph API posting logic using the latest Meta API standards
+    // Instagram Graph API posting logic using URL-based approach
     try {
       // Step 0: Get Instagram Business Account ID
-      // In production, this would be a call to Graph API
       if (!userId || !accessToken) {
         return {
           success: false,
@@ -436,98 +434,60 @@ export class PlatformPostingService {
       }
 
       if (content.media && content.media.length > 0) {
-        // Determine post type
-        const isCarousel = content.media.length > 1;
-        const isVideo = content.media[0].type === 'video';
+        console.log('🔍 Instagram: Uploading media files', content.media.length);
 
-        if (isCarousel) {
-          // Step 1: Create container for each carousel item
-          const childContainers = [];
+        try {
+          // Import Instagram helper functions
+          const { postInstagramImage, postInstagramVideo, postInstagramCarousel } = await import('@/lib/instagram');
 
-          for (const media of content.media) {
-            const childContainer = await fetch(
-              `https://graph.facebook.com/v19.0/${igBusinessAccount}/media`,
-              {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                  [media.type === 'video' ? 'video_url' : 'image_url']: media.url,
-                  access_token: accessToken
-                })
-              }
+          // Determine post type
+          const isCarousel = content.media.length > 1;
+          const isVideo = content.media[0].type === 'video';
+
+          let result;
+
+          if (isCarousel) {
+            // Multiple media items - create carousel
+            console.log('🔍 Instagram: Creating carousel post');
+            result = await postInstagramCarousel(
+              igBusinessAccount,
+              accessToken,
+              content.media.map((m: any) => ({ url: m.url, type: m.type })),
+              content.text || ''
             );
-
-            const childResult = await childContainer.json();
-
-            if (childResult.error) {
-              return {
-                success: false,
-                error: `Failed to create media container: ${childResult.error.message}`
-              };
-            }
-
-            childContainers.push(childResult.id);
+          } else if (isVideo) {
+            // Single video post
+            console.log('🔍 Instagram: Creating video post');
+            result = await postInstagramVideo(
+              igBusinessAccount,
+              accessToken,
+              content.media[0].url,
+              content.text || ''
+            );
+          } else {
+            // Single image post
+            console.log('🔍 Instagram: Creating image post');
+            result = await postInstagramImage(
+              igBusinessAccount,
+              accessToken,
+              content.media[0].url,
+              content.text || ''
+            );
           }
 
-          // Step 2: Create carousel container
-          const carouselContainer = await fetch(
-            `https://graph.facebook.com/v19.0/${igBusinessAccount}/media`,
-            {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                media_type: 'CAROUSEL',
-                caption: content.text || '',
-                children: childContainers,
-                access_token: accessToken
-              })
-            }
-          );
+          console.log('✅ Instagram: Media uploaded successfully:', result.id);
 
-          const containerResult = await carouselContainer.json();
-
-          if (containerResult.error) {
-            return {
-              success: false,
-              error: `Failed to create carousel container: ${containerResult.error.message}`
-            };
-          }
-
-          // Step 3: Publish the carousel
-          return await this.publishInstagramMedia(igBusinessAccount, accessToken, containerResult.id, 'carousel');
-        } else {
-          // Single media post (image or video)
-          // Step 1: Create media container
-          const mediaContainer = await fetch(
-            `https://graph.facebook.com/v19.0/${igBusinessAccount}/media`,
-            {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                [isVideo ? 'video_url' : 'image_url']: content.media[0].url,
-                caption: content.text || '',
-                access_token: accessToken
-              })
-            }
-          );
-
-          const containerResult = await mediaContainer.json();
-
-          if (containerResult.error) {
-            return {
-              success: false,
-              error: `Failed to create media container: ${containerResult.error.message}`
-            };
-          }
-
-          // Step 2: Publish the media
-          return await this.publishInstagramMedia(igBusinessAccount, accessToken, containerResult.id, isVideo ? 'video' : 'image');
+          return {
+            success: true,
+            platformPostId: result.id,
+            url: result.permalink || `https://instagram.com/p/${result.id}`
+          };
+        } catch (error) {
+          console.error('❌ Instagram: Media upload failed', error);
+          return {
+            success: false,
+            error: error instanceof Error ? error.message : 'Instagram media upload failed'
+          };
         }
       } else {
         // Instagram requires media for feed posts

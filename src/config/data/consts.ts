@@ -19,17 +19,19 @@ export const OAUTH_SCOPES = {
         "pages_read_engagement",
         "pages_manage_ads",
         "pages_manage_posts",
+        "pages_show_list",
         "read_insights",
         "instagram_basic",
         "instagram_content_publish"
     ].join(","),
     INSTAGRAM: [
         "ads_management",
-        "ads_read", 
+        "ads_read",
         "business_management",
         "pages_read_engagement",
         "pages_manage_ads",
         "pages_manage_posts",
+        "pages_show_list",
         "read_insights",
         "instagram_basic",
         "instagram_content_publish"
