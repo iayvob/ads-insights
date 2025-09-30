@@ -149,13 +149,18 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error("Posting API error:", error)
+
+    // Check if this is a known authentication error
+    const errorMessage = error instanceof Error ? error.message : "An unexpected error occurred"
+    const isAuthError = errorMessage.includes("OAuth") || errorMessage.includes("authentication") || errorMessage.includes("Bearer tokens")
+
     return NextResponse.json(
       {
         success: false,
-        error: "INTERNAL_SERVER_ERROR",
-        message: "An unexpected error occurred"
+        error: isAuthError ? "AUTHENTICATION_ERROR" : "INTERNAL_SERVER_ERROR",
+        message: errorMessage
       },
-      { status: 500 }
+      { status: isAuthError ? 400 : 500 }
     )
   }
 }

@@ -13,6 +13,7 @@ export interface PlatformConnection {
   pageId?: string // For Facebook/Instagram pages
   accountName?: string
   accessTokenSecret?: string // For Twitter OAuth 1.0a (if needed)
+  authType?: 'oauth1' | 'oauth2' // For Twitter authentication type
 }
 
 export interface PostContent {
@@ -165,17 +166,73 @@ export class PlatformPostingService {
     }
 
     if (session.connectedPlatforms?.twitter) {
-      const twitter = session.connectedPlatforms.twitter
-      connections.push({
-        platform: "twitter",
-        connected: true,
-        accessToken: twitter.account_tokens.access_token,
-        refreshToken: twitter.account_tokens.refresh_token,
-        expiresAt: new Date(twitter.account_tokens.expires_at),
-        username: twitter.account.username,
-        userId: twitter.account.userId,
-        accountName: twitter.account.username
-      })
+      // For Twitter, we need to get the proper connection with OAuth type detection
+      try {
+        const { getTwitterConnection } = await import('@/app/api/posting/platforms/twitter/helpers')
+        // Create a mock request object with the session to get Twitter connection
+        const mockRequest = {
+          headers: { get: () => null },
+          cookies: { get: () => null },
+          nextUrl: { searchParams: { get: () => null } }
+        } as any
+
+        // We'll need to pass the session to get the connection
+        // For now, fall back to session data but add OAuth detection
+        const twitter = session.connectedPlatforms.twitter
+        const tokenLength = twitter.account_tokens.access_token?.length || 0
+        const hasRefreshToken = !!twitter.account_tokens.refresh_token
+
+        // Detect auth type based on token characteristics
+        let authType: 'oauth1' | 'oauth2' = 'oauth2' // Default
+        let accessTokenSecret: string | undefined = undefined
+
+        // For newly connected Twitter accounts, we get OAuth 2.0 tokens
+        // OAuth 2.0 has longer tokens (80+ chars) and refresh tokens for renewal
+        // OAuth 1.0a has shorter tokens and access token secrets (not refresh tokens)
+        if (tokenLength > 80) {
+          // This looks like OAuth 2.0 Bearer token
+          authType = 'oauth2'
+          accessTokenSecret = undefined // OAuth 2.0 doesn't use access token secrets
+          console.log(`\ud83d\udd10 Detected OAuth 2.0 from session: token length ${tokenLength}, has refresh token: ${hasRefreshToken}`)
+        } else if (hasRefreshToken && tokenLength < 80) {
+          // Short token + refresh token might be OAuth 1.0a with access token secret stored as refresh token
+          authType = 'oauth1'
+          accessTokenSecret = twitter.account_tokens.refresh_token
+          console.log(`\ud83d\udd10 Detected OAuth 1.0a from session: token length ${tokenLength}, using refresh token as access secret`)
+        } else {
+          // Default to OAuth 2.0 for modern Twitter connections
+          authType = 'oauth2'
+          console.log(`\ud83d\udd10 Defaulting to OAuth 2.0 from session: token length ${tokenLength}`)
+        }
+
+        connections.push({
+          platform: "twitter",
+          connected: true,
+          accessToken: twitter.account_tokens.access_token,
+          refreshToken: twitter.account_tokens.refresh_token,
+          expiresAt: new Date(twitter.account_tokens.expires_at),
+          username: twitter.account.username,
+          userId: twitter.account.userId,
+          accountName: twitter.account.username,
+          accessTokenSecret: accessTokenSecret,
+          authType: authType
+        })
+      } catch (error) {
+        console.error('Error setting up Twitter connection:', error)
+        // Fall back to basic connection without OAuth detection
+        const twitter = session.connectedPlatforms.twitter
+        connections.push({
+          platform: "twitter",
+          connected: true,
+          accessToken: twitter.account_tokens.access_token,
+          refreshToken: twitter.account_tokens.refresh_token,
+          expiresAt: new Date(twitter.account_tokens.expires_at),
+          username: twitter.account.username,
+          userId: twitter.account.userId,
+          accountName: twitter.account.username,
+          authType: 'oauth1' // Default to oauth1 for safety
+        })
+      }
     }
 
     if (session.connectedPlatforms?.amazon) {
@@ -345,14 +402,14 @@ export class PlatformPostingService {
           }
 
           try {
-            if (media.type === 'image') {
-              const result = await postImage(pageId, validPageAccessToken, mediaUrl!, mediaCaption);
+            if (media.type === 'image' && mediaUrl) {
+              const result = await postImage(pageId, validPageAccessToken, mediaUrl, mediaCaption);
               console.log('✅ Facebook: Image uploaded', result);
               if (result && typeof result === 'object' && 'id' in result) {
                 facebookMediaIds.push(String(result.id));
               }
-            } else if (media.type === 'video') {
-              const result = await postVideo(pageId, validPageAccessToken, mediaUrl!, mediaCaption);
+            } else if (media.type === 'video' && mediaUrl) {
+              const result = await postVideo(pageId, validPageAccessToken, mediaUrl, mediaCaption);
               console.log('✅ Facebook: Video uploaded', result);
               if (result && typeof result === 'object' && 'id' in result) {
                 facebookMediaIds.push(String(result.id));
@@ -515,7 +572,10 @@ export class PlatformPostingService {
     content: any
   ) {
     try {
-      // Use the Twitter helper function directly
+      // Use the connection data directly with proper OAuth detection
+      // The connection should already have the authType set from the session processing
+      console.log(`\ud83d\udd10 Twitter posting with connection authType: ${connection.authType}, hasSecret: ${!!connection.accessTokenSecret}`)
+
       const result = await this.callTwitterHelper(connection, content)
 
       if (result.success) {
@@ -554,7 +614,8 @@ export class PlatformPostingService {
         media: content.media || [],
         accessToken: connection.accessToken,
         accessTokenSecret: connection.accessTokenSecret || '',
-        userId: connection.userId || ''
+        userId: connection.userId || '',
+        authType: connection.authType || 'oauth1' // Default to oauth1 if not specified
       })
 
       return result

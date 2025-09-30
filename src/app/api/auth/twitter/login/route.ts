@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { generateState, generateCodeVerifier, generateCodeChallenge } from "@/services/authentications";
-import { OAuthService } from "@/services/oauth";
 import { withRateLimit, withErrorHandling } from "@/config/middleware/middleware";
 import { logger } from "@/config/logger";
 import { addSecurityHeaders, createSuccessResponse } from "@/controllers/api-response";
 import { ServerSessionService } from "@/services/session-server";
 import { env } from "@/validations/env";
 import crypto from "crypto";
+import { OAUTH_SCOPES } from "@/config/data/consts";
 
 export const dynamic = "force-dynamic";
 export const dynamicParams = true;
@@ -21,7 +20,7 @@ function generatePKCE() {
     .createHash('sha256')
     .update(codeVerifier)
     .digest('base64url')
-  
+
   return { codeVerifier, codeChallenge }
 }
 
@@ -40,7 +39,7 @@ async function handler(request: NextRequest): Promise<NextResponse> {
     const existingSession = await ServerSessionService.getSession(request);
     if (!existingSession?.user?.username) {
       logger.warn("User not authenticated for Twitter connection");
-      return NextResponse.json({ 
+      return NextResponse.json({
         error: "Authentication required",
         loginUrl: `/login?returnTo=${encodeURIComponent(returnTo)}`
       }, { status: 401 });
@@ -51,14 +50,10 @@ async function handler(request: NextRequest): Promise<NextResponse> {
     const state = crypto.randomBytes(32).toString('hex');
     const redirectUri = `${appUrl}/api/auth/twitter/callback`;
 
-    // Twitter/X OAuth 2.0 scopes for analytics and posting
-    const scopes = [
-      'tweet.read',
-      'tweet.write', 
-      'users.read',
-      'offline.access', // For refresh tokens
-      // Note: ads.read and ads.write require elevated access
-    ].join(' ');
+    // Twitter/X OAuth 2.0 scopes for analytics and posting - using configured scopes
+    const scopes = OAUTH_SCOPES.TWITTER;
+
+    console.log('🔍 Twitter OAuth scopes being requested:', scopes);
 
     // Store PKCE data and state in session for callback verification
     const updatedSession = {
@@ -88,21 +83,21 @@ async function handler(request: NextRequest): Promise<NextResponse> {
     });
 
     // Set session and return auth URL
-    const response = createSuccessResponse({ 
+    const response = createSuccessResponse({
       authUrl: authUrl.toString(),
       state: state.substring(0, 8) + '...',
       scopes: scopes.split(' ')
     }, "Twitter auth URL generated");
-    
+
     const withSession = await ServerSessionService.setSession(request, updatedSession as any, response);
     return addSecurityHeaders(withSession);
 
   } catch (error) {
-    logger.error("Twitter OAuth initiation error", { 
+    logger.error("Twitter OAuth initiation error", {
       error: error instanceof Error ? error.message : error
     });
-    return NextResponse.json({ 
-      error: "Failed to initiate Twitter authentication" 
+    return NextResponse.json({
+      error: "Failed to initiate Twitter authentication"
     }, { status: 500 });
   }
 }

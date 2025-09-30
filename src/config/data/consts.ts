@@ -36,8 +36,8 @@ export const OAUTH_SCOPES = {
         "instagram_basic",
         "instagram_content_publish"
     ].join(","),
-    TWITTER: "tweet.read users.read like.read follows.read offline.access",
-    TIKTOK: "user.info.basic,video.list,user.info.profile,user.info.stats",
+    TWITTER: "tweet.read tweet.write users.read media.write like.read follows.read offline.access", // media.write scope for future OAuth 2.0 media support
+    TIKTOK: "user.info.basic,video.list,video.upload,user.info.profile,user.info.stats,video.publish",
     AMAZON: "profile advertising::campaign_management advertising::campaign_read advertising::reports",
 } as const
 

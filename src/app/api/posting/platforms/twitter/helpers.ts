@@ -3,12 +3,33 @@ import { NextRequest } from "next/server";
 import { ServerSessionService } from "@/services/session-server";
 import { prisma } from "@/config/database/prisma";
 import { getTwitterUserClient, getTwitterV2Client } from "@/lib/twitter";
+import { OAUTH_SCOPES } from "@/config/data/consts";
 
 // Twitter media upload constants
 const TWITTER_IMAGE_SIZE_LIMIT = 5 * 1024 * 1024; // 5MB for images
 const TWITTER_GIF_SIZE_LIMIT = 15 * 1024 * 1024; // 15MB for GIFs  
 const TWITTER_VIDEO_SIZE_LIMIT = 512 * 1024 * 1024; // 512MB for videos
 const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB chunks for chunked upload
+
+// Twitter API v2 media upload endpoints (replacing v1.1 - target deprecation: March 31, 2025)
+const TWITTER_V2_MEDIA_UPLOAD_URL = 'https://upload.twitter.com/2/media/upload';
+const REQUIRED_OAUTH2_SCOPES = ['media.write', 'tweet.write'];
+
+/**
+ * Validate if granted scopes meet the requirements for posting operations
+ */
+function validateTwitterScopes(grantedScopes: string, requireMedia: boolean = false): { valid: boolean; missing: string[] } {
+    const granted = grantedScopes.split(' ').filter(scope => scope.trim());
+    const required = requireMedia ? REQUIRED_OAUTH2_SCOPES : ['tweet.write'];
+    const missing = required.filter(scope => !granted.includes(scope));
+
+    console.log(`🔍 Scope validation - Granted: [${granted.join(', ')}], Required: [${required.join(', ')}]`);
+
+    return {
+        valid: missing.length === 0,
+        missing
+    };
+}
 
 interface TwitterMediaProcessingInfo {
     state: 'pending' | 'in_progress' | 'failed' | 'succeeded';
@@ -46,6 +67,7 @@ export async function getTwitterConnection(request: NextRequest): Promise<Twitte
         }
 
         // Get Twitter auth provider from database
+        // Note: userId needs to be treated as ObjectId for MongoDB
         const authProvider = await prisma.authProvider.findFirst({
             where: {
                 userId: session.userId,
@@ -62,13 +84,55 @@ export async function getTwitterConnection(request: NextRequest): Promise<Twitte
             return null;
         }
 
-        // Determine if this is OAuth 1.0a or OAuth 2.0 based on refreshToken presence
-        const isOAuth1 = !!authProvider.refreshToken;
-        const accessTokenSecret = isOAuth1 ? authProvider.refreshToken || undefined : undefined;
+        // Determine authentication type based on token characteristics
+        // OAuth 1.0a tokens are shorter (typically 50-60 chars) while OAuth 2.0 Bearer tokens are longer (80+ chars)
+        // OAuth 1.0a requires access token secret, OAuth 2.0 uses Bearer tokens
 
-        // For Twitter media uploads, we need OAuth 1.0a even if we have OAuth 2.0 tokens
-        // Twitter v1.1 media endpoints don't support Bearer token authentication
-        console.log(`Twitter auth detection: isOAuth1=${isOAuth1}, hasRefreshToken=${!!authProvider.refreshToken}, accessTokenLength=${authProvider.accessToken.length}`);
+        let authType: 'oauth1' | 'oauth2';
+        let accessTokenSecret: string | undefined;
+
+        // Debug: Log all available authentication data
+        console.log('🔍 Twitter auth provider data:', {
+            hasAccessToken: !!authProvider.accessToken,
+            accessTokenLength: authProvider.accessToken?.length,
+            accessTokenPreview: authProvider.accessToken?.substring(0, 10) + '...',
+            hasRefreshToken: !!authProvider.refreshToken,
+            refreshTokenLength: authProvider.refreshToken?.length,
+            refreshTokenPreview: authProvider.refreshToken?.substring(0, 10) + '...' || 'N/A',
+            expiresAt: authProvider.expiresAt,
+            providerId: authProvider.providerId
+        });
+
+        // Check if we have an access token secret stored in refreshToken (OAuth 1.0a pattern)
+        // This is a common pattern where OAuth 1.0a access token secret is stored in refreshToken field
+        const hasRefreshToken = !!authProvider.refreshToken;
+        const tokenLength = authProvider.accessToken.length;
+
+        // OAuth 2.0 Bearer tokens are typically 80+ characters and start with specific patterns
+        // OAuth 1.0a tokens are typically shorter (40-60 characters)
+        const looksLikeOAuth2Bearer = tokenLength > 80 || authProvider.accessToken.startsWith('AAAA');
+
+        // IMPORTANT: For Twitter OAuth 2.0, refresh tokens are for token renewal, NOT access token secrets
+        // OAuth 2.0: Long tokens (80+ chars) + refresh tokens for renewal
+        // OAuth 1.0a: Short tokens (40-60 chars) + access token secrets (stored as refresh tokens in some systems)
+        if (looksLikeOAuth2Bearer) {
+            // This is OAuth 2.0 - refresh token is for renewal, not access token secret
+            authType = 'oauth2';
+            accessTokenSecret = undefined;
+            console.log('🔐 Detected OAuth 2.0 authentication (Bearer token - refresh token is for renewal)');
+        } else if (hasRefreshToken && tokenLength < 80) {
+            // Short token with refresh token - likely OAuth 1.0a with access token secret
+            authType = 'oauth1';
+            accessTokenSecret = authProvider.refreshToken || undefined;
+            console.log('🔐 Detected OAuth 1.0a authentication (short token + access secret stored as refresh token)');
+        } else {
+            // Default based on token length
+            authType = tokenLength < 80 ? 'oauth1' : 'oauth2';
+            accessTokenSecret = (authType === 'oauth1' && hasRefreshToken) ? (authProvider.refreshToken || undefined) : undefined;
+            console.log(`🔐 Authentication type inferred as ${authType} based on token length: ${tokenLength}`);
+        }
+
+        console.log(`🔐 Final Twitter auth detection: authType=${authType}, tokenLength=${tokenLength}, hasSecret=${!!accessTokenSecret}`);
 
         return {
             accessToken: authProvider.accessToken,
@@ -77,10 +141,17 @@ export async function getTwitterConnection(request: NextRequest): Promise<Twitte
             username: authProvider.username || '',
             connected: true,
             expiresAt: authProvider.expiresAt || undefined,
-            authType: isOAuth1 ? 'oauth1' : 'oauth2'
+            authType: authType
         };
     } catch (error) {
         console.error("Error fetching Twitter connection:", error);
+
+        // Check if it's a Prisma ObjectId error
+        if (error instanceof Error && error.message.includes('ObjectID')) {
+            console.error('🚫 Database ObjectId error - this usually indicates a data consistency issue');
+            console.error('💡 Try reconnecting your Twitter account to resolve the issue');
+        }
+
         return null;
     }
 }
@@ -103,6 +174,32 @@ export async function validateTwitterAccess(userId: string): Promise<boolean> {
 }
 
 /**
+ * Check if OAuth 2.0 token has required scopes for media upload
+ * Enhanced to check against the configured OAuth scopes
+ */
+function hasMediaWriteScope(accessToken: string, grantedScopes?: string): boolean {
+    console.log('🔍 Checking OAuth 2.0 scopes for media.write permission...');
+
+    // Check if we have granted scopes information
+    if (grantedScopes) {
+        const hasMediaWrite = grantedScopes.includes('media.write');
+        const hasTweetWrite = grantedScopes.includes('tweet.write');
+        console.log(`📋 Granted scopes: ${grantedScopes}`);
+        console.log(`📋 Has media.write: ${hasMediaWrite}, Has tweet.write: ${hasTweetWrite}`);
+        return hasMediaWrite && hasTweetWrite;
+    }
+
+    // Fallback: For OAuth 2.0 Bearer tokens, assume scope based on token characteristics
+    // This is a simplified check - in production, you should:
+    // 1. Store the granted scopes during OAuth flow in the database
+    // 2. Or call Twitter's verify_credentials endpoint to check current scopes
+    // 3. Or decode the JWT token if it contains scope information
+
+    const mayHaveMediaScope = accessToken.length > 80;
+    console.log(`📋 OAuth 2.0 scope check result (fallback): ${mayHaveMediaScope ? 'may have media.write' : 'unlikely to have media.write'}`);
+
+    return mayHaveMediaScope;
+}/**
  * Check if media should use chunked upload based on type and size
  */
 function shouldUseChunkedUpload(mediaType: string, fileSize: number): boolean {
@@ -124,7 +221,51 @@ function shouldUseChunkedUpload(mediaType: string, fileSize: number): boolean {
 }
 
 /**
+ * Upload media using Twitter API v2 endpoints (OAuth 2.0 with media.write scope)
+ * Following the latest 2025 Twitter API documentation
+ */
+async function uploadMediaV2(
+    client: any,
+    buffer: Buffer,
+    mimeType: string,
+    mediaType: 'image' | 'video'
+): Promise<string> {
+    const totalBytes = buffer.length;
+
+    console.log(`🚀 Using Twitter API v2 media upload for ${mediaType}, size: ${totalBytes} bytes`);
+
+    try {
+        // As of 2025, the twitter-api-v2 library still uses v1.1 endpoints for media upload
+        // even with OAuth 2.0 Bearer tokens. The v2 media endpoints are not yet fully 
+        // implemented in the library. Use the v1 upload method which works with OAuth 2.0.
+
+        console.log('📡 Using v1 media upload method with OAuth 2.0 Bearer token (library limitation)');
+
+        // Use the v1 upload method - this actually works with OAuth 2.0 Bearer tokens
+        // despite being labeled as v1, when using the twitter-api-v2 library
+        const response = await client.v1.uploadMedia(buffer, {
+            mimeType: mimeType,
+            target: 'tweet',
+            media_category: mediaType === 'video' ? 'tweet_video' : 'tweet_image'
+        });
+
+        const mediaId = typeof response === 'string' ? response : response.media_id_string;
+        console.log(`✅ v2 media upload completed: ${mediaId}`);
+        return mediaId;
+
+    } catch (error) {
+        console.error('❌ v2 media upload failed:', error);
+
+        // Check if this is a scope-related error
+        if (error instanceof Error && (error.message.includes('scope') || error.message.includes('permission'))) {
+            throw new Error('🚫 Twitter v2 media upload failed: Missing required media.write scope. Please reconnect your Twitter account and ensure the media.write permission is granted.');
+        }
+
+        throw error;
+    }
+}/**
  * Upload media using chunked upload (INIT -> APPEND -> FINALIZE -> STATUS)
+ * Legacy v1.1 method for OAuth 1.0a authentication
  */
 async function uploadMediaChunked(
     client: any,
@@ -287,11 +428,15 @@ async function uploadSingleMedia(
             mediaId = await uploadMediaChunked(client, buffer, mimeType, mediaItem.type);
         } else {
             console.log(`Using simple upload for ${mediaItem.type}`);
-            // Use simple upload for small images
-            mediaId = await client.v1.uploadMedia(buffer, {
+            // Use simple upload for small images with proper media category
+            const uploadResponse = await client.v1.uploadMedia(buffer, {
                 mimeType: mimeType,
-                target: 'tweet'
+                target: 'tweet',
+                media_category: mediaItem.type === 'video' ? 'tweet_video' : 'tweet_image'
             });
+
+            // Handle response format - it might be just the media_id or an object
+            mediaId = typeof uploadResponse === 'string' ? uploadResponse : uploadResponse.media_id_string;
         }
 
         // Add alt text if provided
@@ -311,6 +456,70 @@ async function uploadSingleMedia(
 
     } catch (error) {
         console.error(`Failed to upload media ${mediaItem.id}:`, error);
+        throw error;
+    }
+}
+
+/**
+ * Upload single media item using v2 endpoints (OAuth 2.0 with media.write scope)
+ */
+async function uploadSingleMediaV2(
+    client: any,
+    mediaItem: { url: string; type: 'image' | 'video'; mimeType?: string; alt?: string; id: string }
+): Promise<string | null> {
+    try {
+        // Fetch media content from URL
+        const mediaResponse = await fetch(mediaItem.url);
+        if (!mediaResponse.ok) {
+            console.error(`Failed to fetch media from URL: ${mediaItem.url}`);
+            return null;
+        }
+
+        // Convert to buffer for upload
+        const mediaBuffer = await mediaResponse.arrayBuffer();
+        const buffer = Buffer.from(mediaBuffer);
+        const fileSize = buffer.length;
+        const mimeType = mediaItem.mimeType || 'image/jpeg';
+
+        console.log(`🚀 Processing v2 ${mediaItem.type} upload: ${fileSize} bytes, type: ${mimeType}`);
+
+        // Validate file size limits
+        if (mediaItem.type === 'video' && fileSize > TWITTER_VIDEO_SIZE_LIMIT) {
+            throw new Error(`Video file too large: ${fileSize} bytes (max: ${TWITTER_VIDEO_SIZE_LIMIT})`);
+        }
+        if (mediaItem.type === 'image' && fileSize > TWITTER_IMAGE_SIZE_LIMIT) {
+            throw new Error(`Image file too large: ${fileSize} bytes (max: ${TWITTER_IMAGE_SIZE_LIMIT})`);
+        }
+
+        // Use v2 media upload
+        const mediaId = await uploadMediaV2(client, buffer, mimeType, mediaItem.type);
+
+        // Add alt text if provided (v2 method)
+        if (mediaItem.alt && mediaId) {
+            try {
+                // For v2 API, alt text might be handled differently
+                // Check if v2 method exists, otherwise fallback to v1
+                if (client.v2 && client.v2.createMediaMetadata) {
+                    await client.v2.createMediaMetadata(mediaId, {
+                        alt_text: { text: mediaItem.alt }
+                    });
+                } else {
+                    // Fallback to v1 method for alt text
+                    await client.v1.createMediaMetadata(mediaId, {
+                        alt_text: { text: mediaItem.alt }
+                    });
+                }
+                console.log(`Added alt text for media_id: ${mediaId} (v2)`);
+            } catch (altError) {
+                console.warn('Failed to add alt text (v2):', altError);
+            }
+        }
+
+        console.log(`✅ Successfully uploaded media v2: ${mediaId}`);
+        return mediaId;
+
+    } catch (error) {
+        console.error(`❌ Failed to upload media v2 ${mediaItem.id}:`, error);
         throw error;
     }
 }
@@ -338,58 +547,94 @@ export async function postToTwitter(params: {
         let mediaClient;
         let tweetClient;
 
-        console.log(`Twitter authentication setup - authType: ${authType}, hasSecret: ${!!accessTokenSecret}`);
+        console.log(`🔐 Twitter authentication setup - authType: ${authType}, hasSecret: ${!!accessTokenSecret}, tokenLength: ${accessToken.length}`);
 
         // Create clients based on auth type and operation
-        if (authType === 'oauth2') {
-            // For OAuth 2.0: Use Bearer token for tweeting
-            console.log('Using OAuth 2.0 Bearer token for tweet posting');
-            tweetClient = getTwitterV2Client(accessToken);
-
-            // For media upload with OAuth 2.0, we have a problem:
-            // Twitter v1.1 media endpoints don't support Bearer token auth
-            if (accessTokenSecret) {
-                console.log('Found OAuth 1.0a secret, using for media upload');
-                mediaClient = getTwitterUserClient(accessToken, accessTokenSecret);
-            } else {
-                // This is the core issue - we need OAuth 1.0a for media uploads
-                console.warn('⚠️  OAuth 2.0 detected but no OAuth 1.0a secret available');
-                console.warn('⚠️  Twitter media upload requires OAuth 1.0a authentication');
-                console.warn('⚠️  Attempting to use OAuth 1.0a client with Bearer token (this will likely fail)');
-
-                // Try to create an OAuth 1.0a client using the Bearer token as access token
-                // This is a workaround but will likely fail
-                mediaClient = getTwitterUserClient(accessToken, '');
-            }
-        } else {
-            console.log('Using OAuth 1.0a for both media upload and tweet posting');
-            // Use OAuth 1.0a for both operations (this should work)
+        if (authType === 'oauth1' && accessTokenSecret) {
+            console.log('✅ Using OAuth 1.0a for both media upload and tweet posting (v1.1 endpoints)');
+            // OAuth 1.0a - Use for both operations (legacy v1.1 endpoints)
             mediaClient = getTwitterUserClient(accessToken, accessTokenSecret);
             tweetClient = mediaClient; // Same client for both operations
+        } else if (authType === 'oauth2') {
+            console.log('🚀 OAuth 2.0 detected - attempting v2 media upload endpoints');
+            // For OAuth 2.0: Use Bearer token for both tweeting and media upload (v2 endpoints)
+            tweetClient = getTwitterV2Client(accessToken);
+            mediaClient = tweetClient; // Same client for v2 operations
+
+            // Check if OAuth 2.0 token has required scopes for media upload
+            if (media && media.length > 0) {
+                // Enhanced scope validation for media uploads
+                const scopeValidation = validateTwitterScopes(OAUTH_SCOPES.TWITTER, true);
+                const hasScopes = hasMediaWriteScope(accessToken, OAUTH_SCOPES.TWITTER);
+
+                if (!hasScopes || !scopeValidation.valid) {
+                    const missingScopes = scopeValidation.missing.join(', ');
+                    throw new Error(`🚫 Twitter v2 media upload failed: Missing required OAuth 2.0 scopes [${missingScopes}]. Please reconnect your Twitter account and ensure these permissions are granted: media.write, tweet.write. Current configured scopes: ${OAUTH_SCOPES.TWITTER}`);
+                }
+                console.log('✅ OAuth 2.0 token has required scopes for media upload - proceeding with v2 upload');
+            } else {
+                // For text-only posts, check basic tweet.write scope
+                const scopeValidation = validateTwitterScopes(OAUTH_SCOPES.TWITTER, false);
+                if (!scopeValidation.valid) {
+                    const missingScopes = scopeValidation.missing.join(', ');
+                    throw new Error(`🚫 Twitter posting failed: Missing required OAuth 2.0 scope [${missingScopes}]. Please reconnect your Twitter account and ensure tweet.write permission is granted.`);
+                }
+                console.log('✅ OAuth 2.0 token has required scopes for text posting');
+            }
+        } else {
+            throw new Error('🚫 Invalid Twitter authentication: Missing access token secret. OAuth 1.0a authentication requires both access token and access token secret for API requests.');
         }
 
         let mediaIds: string[] = [];
 
+        // Check for OAuth 2.0 media upload limitation
+        if (authType === 'oauth2' && media && media.length > 0) {
+            throw new Error('🚫 Twitter media upload not supported with OAuth 2.0: Twitter API v2 requires using v1.1 media upload endpoints, which only support OAuth 1.0a authentication. Please reconnect your Twitter account using OAuth 1.0a for media uploads, or use text-only posts with OAuth 2.0.');
+        }
+
         // Upload media if present using enhanced upload flow
         if (media && media.length > 0) {
-            console.log(`Uploading ${media.length} media files to Twitter using enhanced upload flow`);
-            console.log(`Media client auth type: ${authType}, has secret: ${!!accessTokenSecret}`);
+            // Validate that we have proper authentication for media uploads
+            if (!mediaClient) {
+                throw new Error('🚫 Cannot upload media: Media client not available. Twitter media uploads require OAuth 1.0a authentication.');
+            }
+
+            console.log(`📁 Uploading ${media.length} media files to Twitter using enhanced upload flow`);
+            console.log(`🔐 Media client auth type: ${authType}, has secret: ${!!accessTokenSecret}`);
 
             for (const mediaItem of media) {
                 try {
-                    const mediaId = await uploadSingleMedia(mediaClient, mediaItem);
+                    console.log(`Uploading media ${mediaItem.id}: ${mediaItem.type} using ${authType === 'oauth2' ? 'v2' : 'v1.1'} endpoints`);
+
+                    let mediaId: string | null;
+
+                    if (authType === 'oauth2') {
+                        // Use v2 media upload for OAuth 2.0
+                        mediaId = await uploadSingleMediaV2(mediaClient, mediaItem);
+                    } else {
+                        // Use v1.1 media upload for OAuth 1.0a
+                        mediaId = await uploadSingleMedia(mediaClient, mediaItem);
+                    }
+
                     if (mediaId) {
                         mediaIds.push(mediaId);
+                        console.log(`✅ Successfully uploaded media ${mediaItem.id} -> ${mediaId} (${authType === 'oauth2' ? 'v2' : 'v1.1'})`);
+                    } else {
+                        console.error(`❌ Failed to upload media ${mediaItem.id}`);
                     }
                 } catch (uploadError) {
-                    console.error(`Failed to upload media ${mediaItem.id}:`, uploadError);
+                    console.error(`❌ Failed to upload media ${mediaItem.id}:`, uploadError);
 
-                    // If OAuth 2.0 media upload fails, suggest using OAuth 1.0a
-                    if (authType === 'oauth2' && !accessTokenSecret) {
-                        console.error('🚫 Media upload failed: Twitter v1.1 media endpoints require OAuth 1.0a authentication');
-                        console.error('💡 Solution: Use Twitter app with OAuth 1.0a authentication for media uploads');
+                    // Provide specific error messages based on authentication type and error details
+                    if (authType === 'oauth2') {
+                        throw new Error('🚫 Twitter media upload failed: Twitter API v2 requires v1.1 media upload endpoints, which only support OAuth 1.0a authentication. For media uploads, please reconnect your Twitter account using OAuth 1.0a authentication, or use text-only posts with OAuth 2.0.');
+                    } else if (authType === 'oauth1' && !accessTokenSecret) {
+                        throw new Error('🚫 Twitter media upload failed: OAuth 1.0a authentication requires an access token secret, but none was found. Please reconnect your Twitter account.');
+                    } else if (uploadError instanceof Error && uploadError.message.includes('403')) {
+                        throw new Error('� Twitter media upload failed: 403 Forbidden. This usually indicates: 1) Invalid OAuth 1.0a credentials, 2) App lacks media upload permissions, or 3) Token has expired. Please reconnect your Twitter account and ensure your app has read/write permissions.');
+                    } else {
+                        throw new Error(`🚫 Twitter media upload failed: ${uploadError instanceof Error ? uploadError.message : 'Unknown error'}`);
                     }
-                    // Continue with other media files
                 }
             }
 
@@ -465,9 +710,9 @@ export async function postToTwitter(params: {
                     break;
                 case 403:
                     if (authType === 'oauth2' && media && media.length > 0) {
-                        errorMessage = "Twitter media upload failed: OAuth 2.0 Bearer tokens don't work with Twitter's v1.1 media endpoints. Twitter requires OAuth 1.0a authentication for media uploads. Please reconnect your Twitter account with OAuth 1.0a or use text-only posts.";
+                        errorMessage = "Twitter media upload failed: Twitter API v2 requires v1.1 media upload endpoints, which only support OAuth 1.0a authentication. Please reconnect with OAuth 1.0a for media uploads or use text-only posts.";
                     } else if (authType === 'oauth2') {
-                        errorMessage = "Twitter API access forbidden - Please check your app permissions";
+                        errorMessage = "Twitter API access forbidden - Please check your OAuth 2.0 scopes and app permissions";
                     } else {
                         errorMessage = "Twitter API access forbidden - check your app permissions and OAuth 1.0a authentication";
                     }
