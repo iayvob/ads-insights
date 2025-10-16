@@ -20,7 +20,7 @@ export interface PostContent {
   text?: string
   media?: Array<{
     id: string
-    url: string
+    url?: string  // Optional since media might be uploaded separately
     type: 'image' | 'video'
     altText?: string
   }>
@@ -78,35 +78,16 @@ export class PlatformPostingService {
       if (authProvider?.businessAccounts) {
         try {
           const businessData = JSON.parse(authProvider.businessAccounts);
-          console.log('Raw Facebook business data keys:', Object.keys(businessData));
-          console.log('Facebook business data structure:', {
-            hasBusinessAccounts: !!businessData.business_accounts,
-            hasFacebookPages: !!businessData.facebook_pages,
-            hasPages: !!businessData.pages,
-            businessAccountsCount: businessData.business_accounts?.length || 0,
-            facebookPagesCount: businessData.facebook_pages?.length || 0,
-            pagesCount: businessData.pages?.length || 0
-          });
 
           // Try all possible page arrays
           let pages = [];
           if (businessData.facebook_pages && businessData.facebook_pages.length > 0) {
             pages = businessData.facebook_pages;
-            console.log('Using facebook_pages');
           } else if (businessData.business_accounts && businessData.business_accounts.length > 0) {
             pages = businessData.business_accounts;
-            console.log('Using business_accounts');
           } else if (businessData.pages && businessData.pages.length > 0) {
             pages = businessData.pages;
-            console.log('Using pages');
           }
-
-          console.log('Facebook pages found:', pages.length, pages.map((p: any) => ({
-            id: p.id,
-            name: p.name,
-            tasks: p.tasks,
-            hasCreateContent: p.tasks && p.tasks.includes ? p.tasks.includes('CREATE_CONTENT') : false
-          })));
 
           // Find a page with CREATE_CONTENT permissions, or just use the first one
           const primaryPage = pages.find((page: any) =>
@@ -116,20 +97,10 @@ export class PlatformPostingService {
           if (primaryPage) {
             pageId = primaryPage.id;
             pageName = primaryPage.name || pageName;
-            console.log('✅ Selected Facebook page:', {
-              id: pageId,
-              name: pageName,
-              tasks: primaryPage.tasks,
-              hasCreateContent: primaryPage.tasks && primaryPage.tasks.includes ? primaryPage.tasks.includes('CREATE_CONTENT') : false
-            });
-          } else {
-            console.log('❌ No Facebook pages found in any array');
           }
         } catch (e) {
           console.error('Error parsing Facebook business accounts:', e, authProvider.businessAccounts?.substring(0, 200));
         }
-      } else {
-        console.log('❌ No businessAccounts field found in authProvider');
       }      // Fallback: try to use advertisingAccountId if no pages found (though this is likely wrong)
       if (!pageId && authProvider?.advertisingAccountId) {
         console.warn('No Facebook pages found, falling back to advertising account ID');
@@ -166,57 +137,59 @@ export class PlatformPostingService {
     }
 
     if (session.connectedPlatforms?.twitter) {
-      // For Twitter, we need to get the proper connection with OAuth type detection
+      // For Twitter, we need to get the proper connection with OAuth type detection from database
       try {
-        const { getTwitterConnection } = await import('@/app/api/posting/platforms/twitter/helpers')
-        // Create a mock request object with the session to get Twitter connection
-        const mockRequest = {
-          headers: { get: () => null },
-          cookies: { get: () => null },
-          nextUrl: { searchParams: { get: () => null } }
-        } as any
+        // Fetch Twitter auth provider directly from database to get OAuth 1.0a tokens
+        const authProvider = await prisma.authProvider.findFirst({
+          where: {
+            userId: session.userId,
+            provider: 'twitter'
+          }
+        });
 
-        // We'll need to pass the session to get the connection
-        // For now, fall back to session data but add OAuth detection
-        const twitter = session.connectedPlatforms.twitter
-        const tokenLength = twitter.account_tokens.access_token?.length || 0
-        const hasRefreshToken = !!twitter.account_tokens.refresh_token
+        const twitter = session.connectedPlatforms.twitter;
 
-        // Detect auth type based on token characteristics
-        let authType: 'oauth1' | 'oauth2' = 'oauth2' // Default
-        let accessTokenSecret: string | undefined = undefined
+        if (authProvider && authProvider.accessToken) {
+          // Determine authentication type based on available tokens
+          let authType: 'oauth1' | 'oauth2' = 'oauth2';
+          let accessTokenSecret: string | undefined;
 
-        // For newly connected Twitter accounts, we get OAuth 2.0 tokens
-        // OAuth 2.0 has longer tokens (80+ chars) and refresh tokens for renewal
-        // OAuth 1.0a has shorter tokens and access token secrets (not refresh tokens)
-        if (tokenLength > 80) {
-          // This looks like OAuth 2.0 Bearer token
-          authType = 'oauth2'
-          accessTokenSecret = undefined // OAuth 2.0 doesn't use access token secrets
-          console.log(`\ud83d\udd10 Detected OAuth 2.0 from session: token length ${tokenLength}, has refresh token: ${hasRefreshToken}`)
-        } else if (hasRefreshToken && tokenLength < 80) {
-          // Short token + refresh token might be OAuth 1.0a with access token secret stored as refresh token
-          authType = 'oauth1'
-          accessTokenSecret = twitter.account_tokens.refresh_token
-          console.log(`\ud83d\udd10 Detected OAuth 1.0a from session: token length ${tokenLength}, using refresh token as access secret`)
+          if (authProvider.accessTokenSecret) {
+            // OAuth 1.0a available (has access token secret)
+            authType = 'oauth1';
+            accessTokenSecret = authProvider.accessTokenSecret;
+          }
+
+          console.log(`🔍 Twitter connection setup - authProvider found: ${!!authProvider}, accessTokenSecret: ${!!authProvider.accessTokenSecret}, authType: ${authType}`);
+          console.log(`🔍 Using database authProvider data for connection`);
+
+          connections.push({
+            platform: "twitter",
+            connected: true,
+            accessToken: authProvider.accessToken,
+            refreshToken: authProvider.refreshToken || undefined,
+            expiresAt: authProvider.expiresAt ? new Date(authProvider.expiresAt) : new Date(twitter.account_tokens.expires_at),
+            username: authProvider.username || twitter.account.username,
+            userId: authProvider.providerId || twitter.account.userId,
+            accountName: authProvider.username || twitter.account.username,
+            accessTokenSecret: accessTokenSecret,
+            authType: authType
+          })
         } else {
-          // Default to OAuth 2.0 for modern Twitter connections
-          authType = 'oauth2'
-          console.log(`\ud83d\udd10 Defaulting to OAuth 2.0 from session: token length ${tokenLength}`)
+          // Fallback to session data if database connection not found
+          console.log(`🔍 Twitter connection setup - no authProvider found, falling back to session data`);
+          connections.push({
+            platform: "twitter",
+            connected: true,
+            accessToken: twitter.account_tokens.access_token,
+            refreshToken: twitter.account_tokens.refresh_token,
+            expiresAt: new Date(twitter.account_tokens.expires_at),
+            username: twitter.account.username,
+            userId: twitter.account.userId,
+            accountName: twitter.account.username,
+            authType: 'oauth2' // Fallback is OAuth 2.0
+          })
         }
-
-        connections.push({
-          platform: "twitter",
-          connected: true,
-          accessToken: twitter.account_tokens.access_token,
-          refreshToken: twitter.account_tokens.refresh_token,
-          expiresAt: new Date(twitter.account_tokens.expires_at),
-          username: twitter.account.username,
-          userId: twitter.account.userId,
-          accountName: twitter.account.username,
-          accessTokenSecret: accessTokenSecret,
-          authType: authType
-        })
       } catch (error) {
         console.error('Error setting up Twitter connection:', error)
         // Fall back to basic connection without OAuth detection
@@ -303,6 +276,12 @@ export class PlatformPostingService {
         error: `${platform} account not connected or token expired`
       }
     }
+
+    console.log(`🔍 Platform connection for ${platform}:`, {
+      authType: connection.authType,
+      hasAccessTokenSecret: !!connection.accessTokenSecret,
+      accessToken: connection.accessToken?.substring(0, 10) + '...'
+    })
 
     try {
       switch (platform) {
@@ -393,23 +372,25 @@ export class PlatformPostingService {
 
           // Ensure we have valid parameters for Facebook API
           const mediaCaption = content.text || 'Posted via Social Media Manager';
-          const mediaUrl = media.url;
 
           // Skip if media URL is not available
-          if (!mediaUrl) {
+          if (!media.url || typeof media.url !== 'string') {
             console.warn('❌ Facebook: Skipping media with missing URL');
             continue;
           }
 
+          // Extract the URL to a strongly typed variable
+          const validMediaUrl: string = media.url;
+
           try {
-            if (media.type === 'image' && mediaUrl) {
-              const result = await postImage(pageId, validPageAccessToken, mediaUrl, mediaCaption);
+            if (media.type === 'image') {
+              const result = await postImage(pageId, validPageAccessToken, validMediaUrl, mediaCaption);
               console.log('✅ Facebook: Image uploaded', result);
               if (result && typeof result === 'object' && 'id' in result) {
                 facebookMediaIds.push(String(result.id));
               }
-            } else if (media.type === 'video' && mediaUrl) {
-              const result = await postVideo(pageId, validPageAccessToken, mediaUrl, mediaCaption);
+            } else if (media.type === 'video') {
+              const result = await postVideo(pageId, validPageAccessToken, validMediaUrl, mediaCaption);
               console.log('✅ Facebook: Video uploaded', result);
               if (result && typeof result === 'object' && 'id' in result) {
                 facebookMediaIds.push(String(result.id));
@@ -609,14 +590,28 @@ export class PlatformPostingService {
       // Import the postToTwitter function dynamically to avoid circular dependencies
       const { postToTwitter } = await import('@/app/api/posting/platforms/twitter/helpers')
 
+      // Create XConnection object from PlatformConnection
+      const xConnection = {
+        accessToken: connection.accessToken,
+        refreshToken: connection.refreshToken,
+        userId: connection.userId || '',
+        username: connection.username || 'user',
+        connected: true,
+        expiresAt: connection.expiresAt,
+        hasRefreshToken: !!connection.refreshToken
+      }
+
       const result = await postToTwitter({
         content: content.text || '',
         media: content.media || [],
         accessToken: connection.accessToken,
-        accessTokenSecret: connection.accessTokenSecret || '',
+        accessTokenSecret: connection.accessTokenSecret,
         userId: connection.userId || '',
-        authType: connection.authType || 'oauth1' // Default to oauth1 if not specified
+        authType: connection.authType || 'oauth2'
+        // No request parameter - will skip getTwitterConnection call
       })
+
+      console.log(`🔍 Twitter helper called with authType: ${connection.authType || 'oauth2'}, accessTokenSecret: ${!!connection.accessTokenSecret}`)
 
       return result
     } catch (error) {
@@ -794,7 +789,7 @@ export class PlatformPostingService {
       const mediaAssets = content.media?.map((media) => ({
         assetId: `asset_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
         mediaType: media.type.toUpperCase() as 'IMAGE' | 'VIDEO',
-        url: media.url,
+        url: media.url!,  // Non-null assertion - media URL validated before posting
         fileName: `media_${Date.now()}.${media.type === 'video' ? 'mp4' : 'jpg'}`,
         fileSize: 0, // Would be calculated in real implementation
         dimensions: { width: 1080, height: 1080 }, // Default dimensions
@@ -902,13 +897,18 @@ export class PlatformPostingService {
 
       // Fetch video file from URL (in a real implementation, this would be handled differently)
       let videoFile: Buffer
+      let videoFilename: string
       try {
+        if (!videoMedia.url) {
+          throw new Error('Video URL is required')
+        }
         const response = await fetch(videoMedia.url)
         if (!response.ok) {
           throw new Error(`Failed to fetch video: ${response.status}`)
         }
         const arrayBuffer = await response.arrayBuffer()
         videoFile = Buffer.from(arrayBuffer)
+        videoFilename = videoMedia.url.split('/').pop() || 'video.mp4'
       } catch (fetchError) {
         return {
           success: false,
@@ -942,7 +942,7 @@ export class PlatformPostingService {
 
       const result = await tiktokClient.createPost(
         videoFile,
-        videoMedia.url.split('/').pop() || 'video.mp4',
+        videoFilename,
         tiktokPostContent,
         videoProperties
       )

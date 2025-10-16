@@ -6,6 +6,7 @@ import { getTwitterUserClient, getTwitterV2Client, getTwitterAppClient } from "@
 import { OAUTH_SCOPES } from "@/config/data/consts";
 import { TwitterApi } from 'twitter-api-v2';
 import { env } from "@/validations/env";
+import { logger } from "@/config/logger";
 
 const TWITTER_API_KEY = env.TWITTER_API_KEY;
 const TWITTER_API_SECRET = env.TWITTER_API_SECRET;
@@ -17,7 +18,7 @@ const TWITTER_VIDEO_SIZE_LIMIT = 512 * 1024 * 1024; // 512MB for videos
 const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB chunks for chunked upload
 
 // Twitter API v2 media upload endpoints (replacing v1.1 - target deprecation: March 31, 2025)
-const TWITTER_V2_MEDIA_UPLOAD_URL = 'https://upload.twitter.com/2/media/upload';
+const TWITTER_V1_MEDIA_UPLOAD_URL = 'https://upload.twitter.com/1.1/media/upload.json';
 const REQUIRED_OAUTH2_SCOPES = ['media.write', 'tweet.write'];
 
 /**
@@ -70,9 +71,9 @@ export interface TwitterConnection {
  */
 export function hasTwitterOAuth1Connection(connection: TwitterConnection): boolean {
     // Check if connection has OAuth 1.0a secret (accessTokenSecret)
-    return !!(connection as any).accessTokenSecret ||
+    return !!connection.accessTokenSecret ||
         connection.tokenType === 'oauth1' ||
-        (connection as any).authType === 'oauth1';
+        connection.authType === 'oauth1';
 }
 
 /**
@@ -87,7 +88,7 @@ export function getTwitterOAuth1Client(connection: TwitterConnection): TwitterAp
         appKey: TWITTER_API_KEY,
         appSecret: TWITTER_API_SECRET,
         accessToken: connection.accessToken,
-        accessSecret: (connection as any).accessTokenSecret || (connection as any).refreshToken,
+        accessSecret: connection.accessTokenSecret,
     });
 }
 
@@ -116,24 +117,35 @@ export async function getTwitterConnection(request: NextRequest): Promise<Twitte
             return null;
         }
 
-        // X API v2 with OAuth 2.0 Bearer authentication only
-        console.log('🔐 Using OAuth 2.0 authentication for X API v2');
+        // Determine authentication type based on available tokens
+        let authType: 'oauth1' | 'oauth2';
+        let accessTokenSecret: string | undefined;
 
-        const authType: 'oauth2' = 'oauth2';
+        if (authProvider.accessTokenSecret) {
+            // OAuth 1.0a available
+            authType = 'oauth1';
+            accessTokenSecret = authProvider.accessTokenSecret;
+            console.log('🔐 Using OAuth 1.0a authentication for X API (media uploads supported)');
+        } else {
+            // Fallback to OAuth 2.0
+            authType = 'oauth2';
+            console.log('🔐 Using OAuth 2.0 authentication for X API v2');
+        }
 
         // Debug: Log authentication data
         console.log('🔍 Twitter auth provider data:', {
             hasAccessToken: !!authProvider.accessToken,
+            hasAccessTokenSecret: !!authProvider.accessTokenSecret,
             accessTokenLength: authProvider.accessToken?.length,
             accessTokenPreview: authProvider.accessToken?.substring(0, 10) + '...',
             expiresAt: authProvider.expiresAt,
-            providerId: authProvider.providerId
+            providerId: authProvider.providerId,
+            authType: authType
         });
-
-        console.log('🔐 Using pure OAuth 2.0 authentication for X API v2');
 
         return {
             accessToken: authProvider.accessToken,
+            accessTokenSecret: accessTokenSecret,
             userId: authProvider.providerId || '',
             username: authProvider.username || '',
             connected: true,
@@ -197,8 +209,111 @@ function hasMediaWriteScope(accessToken: string, grantedScopes?: string): boolea
 
     return mayHaveMediaScope;
 }/**
- * Upload media using Twitter API v1.1 endpoints (OAuth 1.0a required for now)
- * Since X API v2 media upload doesn't support OAuth 2.0 yet, we fall back to v1.1
+ * Upload media using Twitter API v1.1 endpoints with OAuth 1.0a
+ * This is the reliable method for media uploads as of X API current state
+ */
+async function uploadMediaV1(
+    client: TwitterApi,
+    buffer: Buffer,
+    mimeType: string,
+    mediaType: 'image' | 'video'
+): Promise<string> {
+    const totalBytes = buffer.length;
+
+    console.log(`🚀 Starting Twitter API v1.1 chunked media upload for ${mediaType}, size: ${totalBytes} bytes`);
+
+    try {
+        // Twitter v1.1 media upload endpoint
+        const MEDIA_ENDPOINT_URL = 'https://upload.twitter.com/1.1/media/upload.json';
+
+        // For small files, use simple upload
+        if (totalBytes <= 5 * 1024 * 1024) { // 5MB limit for simple upload
+            console.log('📤 Using simple upload for small file');
+
+            // Use the twitter-api-v2 library's built-in uploadMedia method with Buffer directly
+            const result = await client.v1.uploadMedia(buffer, { mimeType });
+            console.log('✅ Simple upload success:', result);
+
+            return result;
+        }
+
+        // For larger files, use chunked upload
+        console.log('📤 Using chunked upload for large file');
+
+        // STEP 1: INIT
+        console.log('📡 INIT: Initializing chunked upload');
+        const initResult = await client.v1.post('media/upload.json', {
+            command: 'INIT',
+            media_type: mimeType,
+            total_bytes: totalBytes,
+            media_category: mediaType === 'video' ? 'tweet_video' : 'tweet_image'
+        });
+
+        console.log('✅ INIT success:', initResult);
+        const mediaId = initResult.media_id_string;
+
+        // STEP 2: APPEND chunks
+        console.log('📡 APPEND: Uploading chunks');
+        const chunkSize = 4 * 1024 * 1024; // 4MB chunks
+        let segmentIndex = 0;
+        let bytesUploaded = 0;
+
+        while (bytesUploaded < buffer.length) {
+            const chunk = buffer.slice(bytesUploaded, Math.min(bytesUploaded + chunkSize, buffer.length));
+
+            console.log(`📤 Uploading segment ${segmentIndex}: ${chunk.length} bytes`);
+
+            const appendFormData = new FormData();
+            appendFormData.append('command', 'APPEND');
+            appendFormData.append('media_id', mediaId);
+            appendFormData.append('segment_index', segmentIndex.toString());
+            appendFormData.append('media', new Blob([chunk], { type: 'application/octet-stream' }));
+
+            await client.v1.post('media/upload.json', appendFormData);
+
+            bytesUploaded += chunk.length;
+            segmentIndex++;
+            console.log(`📤 Uploaded ${bytesUploaded} of ${buffer.length} bytes`);
+        }
+
+        // STEP 3: FINALIZE
+        console.log('📡 FINALIZE: Completing upload');
+        const finalizeResult = await client.v1.post('media/upload.json', {
+            command: 'FINALIZE',
+            media_id: mediaId
+        });
+
+        console.log('✅ FINALIZE success:', finalizeResult);
+
+        // STEP 4: Check processing status for videos
+        if (mediaType === 'video' && finalizeResult.processing_info) {
+            console.log('📹 Video detected - checking processing status');
+            await waitForMediaProcessing(client, mediaId);
+        }
+
+        console.log(`✅ Twitter API v1.1 media upload completed successfully: ${mediaId}`);
+        return mediaId;
+
+    } catch (error) {
+        console.error('🚨 Twitter API v1.1 media upload failed:', {
+            error: error instanceof Error ? error.message : String(error),
+            stack: error instanceof Error ? error.stack : undefined,
+            mediaType,
+            bufferSize: totalBytes,
+            mimeType
+        });
+
+        logger.error("Twitter media upload failed", {
+            error: error instanceof Error ? error.message : String(error),
+            mediaType,
+            size: totalBytes
+        });
+        throw error;
+    }
+}
+/**
+ * Upload media using X API v2 media upload - Direct upload (not chunked)
+ * Following the official X API v2 documentation
  */
 async function uploadMediaV2(
     client: any,
@@ -210,110 +325,149 @@ async function uploadMediaV2(
 ): Promise<string> {
     const totalBytes = buffer.length;
 
-    console.log(`🚀 Attempting Twitter media upload for ${mediaType}, size: ${totalBytes} bytes`);
-
-    // First check: Do we have OAuth 1.0a credentials for this user?
-    if (connection && hasTwitterOAuth1Connection(connection)) {
-        try {
-            console.log('📡 Attempt 1: Using user OAuth 1.0a credentials for media upload');
-
-            const oauth1Client = getTwitterOAuth1Client(connection);
-            if (oauth1Client) {
-                const uploadResponse = await oauth1Client.v1.uploadMedia(buffer, {
-                    mimeType: mimeType,
-                    target: 'tweet'
-                });
-
-                const mediaId = typeof uploadResponse === 'string' ? uploadResponse : (uploadResponse as any).media_id_string;
-
-                if (!mediaId) {
-                    throw new Error('OAuth 1.0a media upload succeeded but no media_id returned');
-                }
-
-                console.log(`✅ User OAuth 1.0a media upload succeeded: ${mediaId}`);
-                return mediaId;
-            }
-        } catch (oauth1Error) {
-            console.log('❌ User OAuth 1.0a media upload failed, trying OAuth 2.0...');
-        }
-    }
+    console.log(`🚀 Starting X API v2 direct media upload for ${mediaType}, size: ${totalBytes} bytes`);
 
     try {
-        // Second try: Use the provided OAuth 2.0 client (will likely fail but worth trying)
-        console.log('📡 Attempt 2: Using OAuth 2.0 client for media upload');
+        // X API v2 direct upload endpoint
+        const MEDIA_ENDPOINT_URL = 'https://upload.twitter.com/2/media/upload.json';
 
-        const uploadResponse = await client.v1.uploadMedia(buffer, {
-            mimeType: mimeType,
-            target: 'tweet'
+        // Convert Buffer to Blob for upload
+        const uint8Array = new Uint8Array(buffer);
+        const blob = new Blob([uint8Array], { type: mimeType });
+
+        // Create FormData with media file
+        const formData = new FormData();
+        formData.append('media', blob);
+
+        // Upload media using X API v2 direct upload
+        const uploadResponse = await fetch(MEDIA_ENDPOINT_URL, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'User-Agent': 'MediaUploadSampleCode'
+            },
+            body: formData
         });
 
-        const mediaId = typeof uploadResponse === 'string' ? uploadResponse : (uploadResponse as any).media_id_string;
-
-        if (!mediaId) {
-            throw new Error('Media upload succeeded but no media_id returned');
+        if (!uploadResponse.ok) {
+            const errorText = await uploadResponse.text();
+            console.error('❌ X API v2 media upload failed:', {
+                status: uploadResponse.status,
+                statusText: uploadResponse.statusText,
+                error: errorText,
+                url: MEDIA_ENDPOINT_URL,
+                authHeader: `Bearer ${accessToken.substring(0, 10)}...`
+            });
+            throw new Error(`X API v2 media upload failed: ${uploadResponse.status} ${uploadResponse.statusText} - ${errorText}`);
         }
 
-        console.log(`✅ OAuth 2.0 media upload succeeded: ${mediaId}`);
+        const uploadResult = await uploadResponse.json();
+        console.log('✅ X API v2 media upload success:', uploadResult);
+
+        const mediaId = uploadResult.media_id_string;
+        if (!mediaId) {
+            console.error('❌ No media ID in response:', uploadResult);
+            throw new Error('No media ID returned from X API v2 upload');
+        }
+
+        // For videos, check processing status if processing_info is present
+        if (mediaType === 'video' && uploadResult.processing_info) {
+            console.log('📹 Video detected - checking processing status');
+            await waitForMediaProcessingV2(accessToken, mediaId);
+        }
+
+        console.log(`✅ X API v2 media upload completed successfully: ${mediaId}`);
         return mediaId;
 
-    } catch (oauth2Error) {
-        console.log('❌ OAuth 2.0 media upload failed, trying app-level OAuth 1.0a fallback...');
+    } catch (error) {
+        console.error('🚨 X API v2 media upload failed:', {
+            error: error instanceof Error ? error.message : String(error),
+            stack: error instanceof Error ? error.stack : undefined,
+            mediaType,
+            bufferSize: totalBytes,
+            mimeType
+        });
 
-        // Third try: Use app-level OAuth 1.0a authentication
+        logger.error("X media upload failed", {
+            error: error instanceof Error ? error.message : String(error),
+            mediaType,
+            size: totalBytes
+        });
+        throw error;
+    }
+}
+
+/**
+ * Wait for media processing to complete using X API v2
+ */
+async function waitForMediaProcessingV2(accessToken: string, mediaId: string, maxAttempts: number = 20): Promise<void> {
+    console.log(`⏳ Waiting for media processing to complete for media_id: ${mediaId}`);
+
+    const MEDIA_ENDPOINT_URL = 'https://upload.twitter.com/2/media/upload.json';
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
         try {
-            console.log('📡 Attempt 3: Using app-level OAuth 1.0a for media upload');
+            console.log(`📋 STATUS check ${attempt + 1}/${maxAttempts}`);
 
-            // Create an app-only client using OAuth 1.0a credentials
-            const appClient = getTwitterAppClient();
+            // X API v2 uses GET with media_id query parameter
+            const statusUrl = `${MEDIA_ENDPOINT_URL}?media_id=${mediaId}`;
 
-            // Note: This might still fail because app-only auth may not have user context
-            const uploadResponse = await appClient.v1.uploadMedia(buffer, {
-                mimeType: mimeType,
-                target: 'tweet'
+            const statusResponse = await fetch(statusUrl, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'User-Agent': 'MediaUploadSampleCode'
+                }
             });
 
-            const mediaId = typeof uploadResponse === 'string' ? uploadResponse : (uploadResponse as any).media_id_string;
-
-            if (!mediaId) {
-                throw new Error('App-level media upload succeeded but no media_id returned');
+            if (!statusResponse.ok) {
+                console.error(`❌ STATUS check failed: ${statusResponse.status} ${statusResponse.statusText}`);
+                throw new Error(`STATUS check failed: ${statusResponse.status} ${statusResponse.statusText}`);
             }
 
-            console.log(`✅ App-level OAuth 1.0a media upload succeeded: ${mediaId}`);
-            return mediaId;
+            const statusResult = await statusResponse.json();
+            const processingInfo = statusResult.processing_info;
 
-        } catch (appError) {
-            console.error('❌ App-level media upload also failed:', appError);
-
-            // If all attempts fail, provide comprehensive guidance
-            const isOAuth2Issue = oauth2Error instanceof Error && (
-                oauth2Error.message.includes('OAuth2') ||
-                oauth2Error.message.includes('not permitted') ||
-                oauth2Error.message.includes('Forbidden')
-            );
-
-            if (isOAuth2Issue) {
-                throw new Error(`🚫 Twitter Media Upload Authentication Issue
-
-❌ Current Limitation: X API media uploads require OAuth 1.0a authentication
-✅ Text tweets work perfectly with OAuth 2.0 (X API v2)
-
-🔧 Immediate Solutions:
-1. Connect Twitter with OAuth 1.0a: Visit /api/auth/twitter/oauth1/login
-2. Use text-only posts (remove images/videos temporarily)
-3. Add link to images hosted elsewhere
-4. Wait for X to enable OAuth 2.0 media uploads
-
-📋 Technical Details:
-- OAuth 2.0 attempt: ${oauth2Error.message}
-- App-level attempt: ${appError instanceof Error ? appError.message : 'Unknown error'}
-- Has OAuth 1.0a connection: ${connection ? hasTwitterOAuth1Connection(connection) : 'No connection data'}
-
-🔮 Future: X is expected to enable OAuth 2.0 for media uploads eventually.`);
+            if (!processingInfo) {
+                console.log('✅ No processing info - media ready');
+                return;
             }
 
-            throw new Error(`🚫 Media upload failed with both authentication methods: ${oauth2Error instanceof Error ? oauth2Error.message : 'Unknown error'}`);
+            const state = processingInfo.state;
+            console.log(`📊 Media processing status: ${state}`);
+
+            switch (state) {
+                case 'succeeded':
+                    console.log('✅ Media processing completed successfully');
+                    return;
+
+                case 'failed':
+                    console.error('❌ Media processing failed');
+                    throw new Error('Media processing failed');
+
+                case 'in_progress':
+                case 'pending':
+                    const checkAfterSecs = processingInfo.check_after_secs || 5;
+                    console.log(`⏳ Processing in progress, checking again in ${checkAfterSecs} seconds...`);
+                    await new Promise(resolve => setTimeout(resolve, checkAfterSecs * 1000));
+                    break;
+
+                default:
+                    console.log(`🔄 Unknown processing state: ${state}, waiting 5 seconds...`);
+                    await new Promise(resolve => setTimeout(resolve, 5000));
+                    break;
+            }
+
+        } catch (error) {
+            console.error(`❌ Error during status check ${attempt + 1}:`, error);
+            if (attempt === maxAttempts - 1) {
+                throw error;
+            }
+            await new Promise(resolve => setTimeout(resolve, 5000));
         }
     }
+
+    throw new Error(`Media processing did not complete within ${maxAttempts} attempts`);
 }
 
 /**
@@ -478,117 +632,155 @@ export async function postToTwitter(params: {
     accessToken: string;
     accessTokenSecret?: string;
     userId: string;
-    authType: 'oauth2';
-    request: NextRequest; // Add request to get connection data
+    authType: 'oauth1' | 'oauth2';
+    request?: NextRequest; // Optional - only needed when called from route handler
 }) {
     const { content, media, accessToken, accessTokenSecret, authType, request } = params;
 
     try {
-        // Get Twitter connection data for OAuth 1.0a capability check
-        const connection = await getTwitterConnection(request);
+        // Get Twitter connection data for OAuth 1.0a capability check (only if request is provided)
+        let connection: TwitterConnection | null = null;
+        if (request) {
+            connection = await getTwitterConnection(request);
+        }
 
         // IMPORTANT: Using X API v2 with OAuth 2.0 Bearer tokens for both tweets and media
 
         let tweetClient;
 
-        console.log(`🔐 X API v2 authentication setup - authType: ${authType}, tokenLength: ${accessToken.length}`);
-        console.log(`🔍 Connection check - hasOAuth1: ${connection ? hasTwitterOAuth1Connection(connection) : 'No connection'}`);
+        // Determine the effective auth type:
+        // 1. If we have a connection from request, check for OAuth 1.0a capability
+        // 2. Otherwise, use the authType parameter directly (already determined from database)
+        const effectiveAuthType = connection
+            ? (hasTwitterOAuth1Connection(connection) ? 'oauth1' : authType)
+            : authType;
 
-        // Create client for X API v2 operations  
-        if (authType === 'oauth2') {
-            console.log('🚀 Using OAuth 2.0 for X API v2 endpoints (tweets)');
-            // OAuth 2.0 - Use for tweet posting (v2)
-            tweetClient = getTwitterV2Client(accessToken);
+        console.log(`🔐 X API authentication setup - requested authType: ${authType}, effective authType: ${effectiveAuthType}`);
+        console.log(`🔍 Connection check - hasOAuth1: ${connection ? hasTwitterOAuth1Connection(connection) : 'Using authType parameter'}`);
+        console.log(`🔑 Token availability - accessToken: ${!!accessToken}, accessTokenSecret: ${!!accessTokenSecret}`);
 
-            // For media uploads, we'll need to handle the OAuth 1.0a requirement
-            // Check if OAuth 2.0 token has required scopes
-            if (media && media.length > 0) {
-                console.log('📁 Media detected - checking authentication compatibility');
-                const scopeValidation = validateTwitterScopes(OAUTH_SCOPES.TWITTER, true);
+        // Create client based on effective auth type
+        if (effectiveAuthType === 'oauth1' && accessTokenSecret) {
+            console.log('🔐 Using OAuth 1.0a for X API operations');
 
-                console.log(`🔍 Current situation:
-- Authentication: OAuth 2.0 (✅ for tweets, ${connection && hasTwitterOAuth1Connection(connection) ? '✅' : '❌'} for media)  
-- Media uploads: ${connection && hasTwitterOAuth1Connection(connection) ? 'OAuth 1.0a available' : 'OAuth 1.0a required but not available'}
-- Text tweets: Full OAuth 2.0 support
-- Attempting upload with current credentials...`);
-
-                // We'll try the upload and let the detailed error handling inform the user
-                console.log('📡 Proceeding with media upload attempt...');
-            } else {
-                // For text-only posts, check basic tweet.write scope
-                const scopeValidation = validateTwitterScopes(OAUTH_SCOPES.TWITTER, false);
-                if (!scopeValidation.valid) {
-                    const missingScopes = scopeValidation.missing.join(', ');
-                    throw new Error(`🚫 X API posting failed: Missing required OAuth 2.0 scope [${missingScopes}]. Please reconnect your Twitter account and ensure tweet.write permission is granted.`);
-                }
-                console.log('✅ OAuth 2.0 token has required scopes for text posting');
+            // Validate OAuth 1.0a tokens before proceeding
+            const tokensValid = await validateOAuth1Tokens(accessToken, accessTokenSecret);
+            if (!tokensValid) {
+                console.error('❌ OAuth 1.0a tokens are invalid - cannot proceed with posting');
+                return {
+                    status: "failed",
+                    error: "OAuth 1.0a authentication failed - tokens may be expired or invalid. Please reconnect your Twitter account.",
+                    success: false
+                };
             }
+
+            tweetClient = new TwitterApi({
+                appKey: TWITTER_API_KEY!,
+                appSecret: TWITTER_API_SECRET!,
+                accessToken: accessToken,
+                accessSecret: accessTokenSecret,
+            });
         } else {
-            throw new Error('🚫 X API v2 requires OAuth 2.0 authentication. OAuth 1.0a is deprecated. Please reconnect your Twitter account using OAuth 2.0 authentication.');
+            console.log('🔐 Using OAuth 2.0 for X API operations');
+            tweetClient = new TwitterApi(accessToken);
         }
 
         let mediaIds: string[] = [];
 
-        // Upload media if present using X API v2 OAuth 2.0 flow
+        // Upload media if present using appropriate authentication
         if (media && media.length > 0) {
-            console.log(`📁 Uploading ${media.length} media files to X using v2 OAuth 2.0 endpoints`);
-            console.log(`🔐 Using OAuth 2.0 Bearer token for media upload`);
+            console.log(`📁 Uploading ${media.length} media files to X`);
 
-            for (const mediaItem of media) {
-                try {
-                    let mediaId: string | null = null;
+            // Use OAuth 1.0a client for media uploads if available
+            if (effectiveAuthType === 'oauth1' && accessTokenSecret) {
+                console.log(`🔐 Using OAuth 1.0a for media uploads (required by X API)`);
+                // Use OAuth 1.0a for media uploads
+                for (const mediaItem of media) {
+                    try {
+                        console.log(`Uploading media ${mediaItem.id}: ${mediaItem.type} using OAuth 1.0a`);
 
-                    console.log(`Uploading media ${mediaItem.id}: ${mediaItem.type} using X API v2`);
+                        // Download media from URL
+                        const mediaResponse = await fetch(mediaItem.url);
+                        if (!mediaResponse.ok) {
+                            throw new Error(`Failed to download media from ${mediaItem.url}: ${mediaResponse.status}`);
+                        }
 
-                    // Download media from URL
-                    const mediaResponse = await fetch(mediaItem.url);
-                    if (!mediaResponse.ok) {
-                        throw new Error(`Failed to download media from ${mediaItem.url}: ${mediaResponse.status}`);
-                    }
+                        const buffer = Buffer.from(await mediaResponse.arrayBuffer());
+                        const mimeType = mediaResponse.headers.get('content-type') ||
+                            (mediaItem.type === 'video' ? 'video/mp4' : 'image/jpeg');
 
-                    const buffer = Buffer.from(await mediaResponse.arrayBuffer());
-                    const mimeType = mediaResponse.headers.get('content-type') ||
-                        (mediaItem.type === 'video' ? 'video/mp4' : 'image/jpeg');
+                        console.log(`� Processing ${mediaItem.type} upload: ${buffer.length} bytes, type: ${mimeType}`);
 
-                    console.log(`🚀 Processing v2 ${mediaItem.type} upload: ${buffer.length} bytes, type: ${mimeType}`);
+                        // Use v1.1 media upload with OAuth 1.0a
+                        const mediaId = await uploadMediaV1(tweetClient as TwitterApi, buffer, mimeType, mediaItem.type as 'image' | 'video');
 
-                    // Use X API v2 media upload with OAuth 2.0 and OAuth 1.0a fallback
-                    mediaId = await uploadMediaV2(tweetClient, buffer, mimeType, mediaItem.type, accessToken, connection || undefined);
-
-                    if (mediaId) {
-                        mediaIds.push(mediaId);
-                        console.log(`✅ Successfully uploaded media ${mediaItem.id} -> ${mediaId} (X API v2)`);
-                    } else {
-                        console.error(`❌ Failed to upload media ${mediaItem.id}`);
-                    }
-                } catch (uploadError) {
-                    console.error(`❌ Failed to upload media ${mediaItem.id}:`, uploadError);
-
-                    // Provide specific guidance for OAuth 2.0 + media upload issues
-                    if (uploadError instanceof Error && uploadError.message.includes('OAuth2')) {
-                        throw new Error(`🚫 Twitter Media Upload Authentication Issue
-
-❌ Current Limitation: X API media uploads still require OAuth 1.0a authentication
-✅ Text tweets work fine with OAuth 2.0 (X API v2)
-
-🔧 Solutions:
-1. IMMEDIATE: Use text-only posts (remove images/videos)
-2. ALTERNATIVE: Reconnect Twitter with OAuth 1.0a for media support
-3. FUTURE: Wait for X to enable OAuth 2.0 media uploads
-
-📝 Technical Details:
-- Your account: ${authType} authentication  
-- Media endpoint: Requires OAuth 1.0a (v1.1 API)
-- Tweet endpoint: Supports OAuth 2.0 (v2 API)
-
-Error: ${uploadError.message}`);
-                    } else {
+                        if (mediaId) {
+                            mediaIds.push(mediaId);
+                            console.log(`✅ Successfully uploaded media ${mediaItem.id} -> ${mediaId} (OAuth 1.0a)`);
+                        } else {
+                            console.error(`❌ Failed to upload media ${mediaItem.id}`);
+                        }
+                    } catch (uploadError) {
+                        console.error(`❌ Failed to upload media ${mediaItem.id}:`, uploadError);
                         throw new Error(`🚫 Twitter media upload failed: ${uploadError instanceof Error ? uploadError.message : 'Unknown error'}`);
                     }
                 }
+            } else {
+                // OAuth 1.0a is NOT available - skip media uploads and post text-only
+                console.log(`⚠️ OAuth 1.0a not available - skipping media uploads, posting text-only`);
+                console.log(`� Posting text-only tweet (media uploads require OAuth 1.0a)`);
+
+                // Add warning to the tweet content about skipped media
+                const mediaWarning = `\n\n⚠️ Note: Media uploads were skipped because OAuth 1.0a authentication is required. To include images/videos, please reconnect your Twitter account with OAuth 1.0a.`;
+                const updatedContent = content + mediaWarning;
+
+                // Post text-only tweet
+                const tweetData: any = {
+                    text: updatedContent,
+                };
+
+                console.log('Posting text-only tweet with options:', {
+                    hasText: !!tweetData.text,
+                    textLength: tweetData.text?.length || 0,
+                    mediaCount: 0,
+                    clientType: effectiveAuthType,
+                    mediaSkipped: media?.length || 0
+                });
+
+                // Use v2 API for posting
+                const tweet = await tweetClient.v2.tweet(tweetData);
+
+                if (tweet.data) {
+                    const tweetId = tweet.data.id;
+                    console.log(`Tweet posted successfully (text-only): ${tweetId}`);
+
+                    // Get username for URL construction
+                    const username = await getUsernameFromClient(tweetClient);
+
+                    return {
+                        platformPostId: tweetId,
+                        status: "published",
+                        publishedAt: new Date().toISOString(),
+                        url: `https://x.com/${username}/status/${tweetId}`,
+                        type: "text_tweet",
+                        success: true,
+                        mediaUploadCount: 0,
+                        totalMediaRequested: media?.length || 0,
+                        authTypeUsed: authType,
+                        mediaSkipped: true,
+                        mediaSkipReason: "OAuth 1.0a required for media uploads"
+                    };
+                } else {
+                    console.error('Tweet creation failed - no data returned');
+                    return {
+                        status: "failed",
+                        error: "Tweet creation failed - no data returned from Twitter API",
+                        success: false
+                    };
+                }
             }
 
-            console.log(`Successfully uploaded ${mediaIds.length} out of ${media.length} media files using X API v2`);
+            console.log(`Successfully uploaded ${mediaIds.length} out of ${media.length} media files`);
         }
 
         // Post tweet using v2 API with proper format
@@ -678,7 +870,9 @@ Error: ${uploadError.message}`);
             success: false
         };
     }
-}/**
+}
+
+/**
  * Get username from Twitter client
  */
 async function getUsernameFromClient(client: any): Promise<string> {
@@ -707,5 +901,30 @@ export async function logPostActivity(userId: string, tweetId: string): Promise<
         // });
     } catch (error) {
         console.error('Error logging Twitter post activity:', error);
+    }
+}
+
+/**
+ * Validate OAuth 1.0a tokens by making a test API call
+ */
+export async function validateOAuth1Tokens(accessToken: string, accessTokenSecret: string): Promise<boolean> {
+    try {
+        const client = new TwitterApi({
+            appKey: TWITTER_API_KEY!,
+            appSecret: TWITTER_API_SECRET!,
+            accessToken: accessToken,
+            accessSecret: accessTokenSecret,
+        });
+
+        // Make a simple API call to verify tokens
+        await client.v2.me({
+            'user.fields': ['id', 'username']
+        });
+
+        console.log('✅ OAuth 1.0a tokens validated successfully');
+        return true;
+    } catch (error) {
+        console.error('❌ OAuth 1.0a token validation failed:', error instanceof Error ? error.message : String(error));
+        return false;
     }
 }

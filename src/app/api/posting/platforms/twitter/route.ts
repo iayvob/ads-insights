@@ -164,14 +164,22 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Post to Twitter
+    console.log('🔐 Twitter posting with connection authType:', twitterConnection.authType || 'undefined', 'hasSecret:', !!twitterConnection.accessTokenSecret)
+    console.log('🔍 Twitter connection details:', {
+      hasAccessToken: !!twitterConnection.accessToken,
+      tokenLength: twitterConnection.accessToken?.length || 0,
+      userId: twitterConnection.userId,
+      username: twitterConnection.username
+    })
+
+    // Post to Twitter using new X API v2 helpers
     const result = await postToTwitter({
       content,
       media,
       accessToken: twitterConnection.accessToken,
       accessTokenSecret: twitterConnection.accessTokenSecret,
-      userId: session.userId,
-      authType: (twitterConnection.authType as 'oauth2') || 'oauth2',
+      userId: twitterConnection.userId,
+      authType: twitterConnection.authType || 'oauth2', // Use dynamic auth type from connection
       request
     })
 
@@ -189,13 +197,13 @@ export async function POST(request: NextRequest) {
         success: true,
         data: {
           id: result.platformPostId,
-          url: result.url,
+          url: result.url || `https://x.com/user/status/${result.platformPostId}`,
           platform: 'twitter',
           status: result.status,
-          publishedAt: result.publishedAt,
-          type: result.type
+          publishedAt: new Date().toISOString(),
+          type: media && media.length > 0 ? "media_tweet" : "text_tweet"
         },
-        message: "Successfully posted to Twitter",
+        message: "Successfully posted to X",
         rateLimitInfo: {
           remaining: rateLimitResult.remaining,
           resetTime: rateLimitResult.resetTime
