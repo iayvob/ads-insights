@@ -6,6 +6,7 @@ import { UserWithProviders, AuthSession } from "@/validations/types"
 import { addSecurityHeaders } from "@/controllers/api-response"
 import { ServerSessionService } from "@/services/session-server"
 import { env } from "@/validations/env"
+import { OAUTH_SCOPES } from "@/config/data/consts"
 
 export const dynamic = "force-dynamic";
 export const dynamicParams = true;
@@ -30,7 +31,7 @@ export const GET = withErrorHandling(async (request: NextRequest) => {
     }
 
     // Verify state
-  const session = await ServerSessionService.getSession(request)
+    const session = await ServerSessionService.getSession(request)
     if (session?.state !== state) {
       return NextResponse.redirect(`${appUrl}/profile?tab=connections&error=invalid_state`)
     }
@@ -42,15 +43,15 @@ export const GET = withErrorHandling(async (request: NextRequest) => {
       callbackUrl,
       session.codeVerifier
     )
-    
+
     // Calculate token expiration - Twitter tokens typically last for 2 hours (7200 seconds)
     // But we'll extend it if a refresh token is provided
     let expiresIn = tokenData.expires_in || 7200;
-    
+
     // If we have a refresh token, set a long expiration to account for auto-refresh
     const hasRefreshToken = !!tokenData.refresh_token;
     const effectiveExpiresIn = hasRefreshToken ? 60 * 24 * 60 * 60 : expiresIn; // 60 days if refresh token available
-    
+
     // Get user info
     const userData = await OAuthService.getTwitterUserData(tokenData.access_token)
 
@@ -93,6 +94,7 @@ export const GET = withErrorHandling(async (request: NextRequest) => {
       accessToken: tokenData.access_token,
       refreshToken: tokenData.refresh_token || null,
       expiresAt: new Date(Date.now() + effectiveExpiresIn * 1000),
+      scopes: tokenData.scope || OAUTH_SCOPES.TWITTER.replace(/ /g, ','), // Store granted OAuth scopes - use configured scopes if API doesn't return them
       tokenExpiresIn: effectiveExpiresIn,
       hasRefreshToken: hasRefreshToken,
     })
@@ -131,9 +133,34 @@ export const GET = withErrorHandling(async (request: NextRequest) => {
       },
     }
 
-  const response = NextResponse.redirect(`${appUrl}/profile?tab=connections&success=twitter`)
-  const withSession = await ServerSessionService.setSession(request, updatedSession, response)
-  return addSecurityHeaders(withSession)
+    // Check if this was a unified flow - if so, continue to OAuth 1.0a for media uploads
+    const isUnifiedFlow = session?.twitter_unified_flow === true;
+
+    if (isUnifiedFlow) {
+      console.log('🔗 Unified flow detected - redirecting to OAuth 1.0a for media upload capability');
+
+      // Store the updated session before redirecting
+      await ServerSessionService.setSession(request, updatedSession, null as any);
+
+      // Redirect to OAuth 1.0a login with user context
+      const oauth1Params = new URLSearchParams({
+        userId: ObjectUserData?.id,
+        providerId: userData.id,
+        username: userData.username,
+        from_unified: 'true',
+        returnTo: (session as any)?.returnTo || '/profile?tab=connections'
+      });
+
+      const response = NextResponse.redirect(
+        `${appUrl}/api/auth/twitter/oauth1/login?${oauth1Params.toString()}`
+      );
+      return addSecurityHeaders(response);
+    }
+
+    // Standard OAuth 2.0 only flow - redirect to profile
+    const response = NextResponse.redirect(`${appUrl}/profile?tab=connections&success=twitter`)
+    const withSession = await ServerSessionService.setSession(request, updatedSession, response)
+    return addSecurityHeaders(withSession)
   } catch (error) {
     console.error("Twitter callback error:", error)
     return NextResponse.redirect(`${appUrl}/profile?tab=connections&error=twitter_callback_failed`)

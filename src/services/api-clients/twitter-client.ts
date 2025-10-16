@@ -1,4 +1,5 @@
 import { logger } from "@/config/logger"
+import type { LogContext, AnalyticsDetails } from "@/config/logger"
 import { BaseApiClient } from "./base-client"
 import { TwitterAnalytics, PostAnalytics, TwitterPostAnalytics, AdsAnalytics, TwitterAdsAnalytics } from "@/validations/analytics-types"
 import { SubscriptionPlan } from "@prisma/client"
@@ -94,7 +95,11 @@ export class TwitterApiClient extends BaseApiClient {
     userPlan: SubscriptionPlan = SubscriptionPlan.FREEMIUM
   ): Promise<TwitterAnalytics> {
     try {
-      logger.info("Fetching Twitter analytics", { userPlan })
+      logger.analytics("Starting Twitter analytics fetch", {
+        platform: 'twitter',
+        dataType: 'posts',
+        success: false
+      }, { operation: 'fetch_analytics' }, ['twitter', 'analytics'])
 
       const profile = await this.getUserData(accessToken)
       const postsAnalytics = await this.getPostsAnalytics(accessToken, profile.id)
@@ -116,8 +121,17 @@ export class TwitterApiClient extends BaseApiClient {
         lastUpdated: new Date().toISOString()
       }
     } catch (error) {
-      logger.warn("Twitter analytics API failed, using mock data", { error, userPlan })
-      return this.generateMockTwitterAnalytics(userPlan)
+      console.error("Twitter analytics API failed:", error)
+      logger.analytics("Twitter analytics fetch failed", {
+        platform: 'twitter',
+        dataType: 'posts',
+        success: false,
+        errorReason: error instanceof Error ? error.message : 'Unknown error'
+      }, {
+        operation: 'fetch_analytics',
+        stack: error instanceof Error ? error.stack : undefined
+      }, ['twitter', 'analytics', 'error'])
+      throw new Error(`Failed to fetch Twitter analytics: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 
@@ -208,7 +222,7 @@ export class TwitterApiClient extends BaseApiClient {
         authenticationStatus
       }
     } catch (error) {
-      logger.warn("Failed to get Twitter posts analytics", { error })
+      logger.error("Failed to get Twitter posts analytics", { operation: 'fetch_posts_analytics', stack: error instanceof Error ? error.stack : undefined }, error, ['twitter', 'posts', 'error'])
       return this.getMockTwitterPostsAnalyticsEnhanced()
     }
   }
@@ -225,7 +239,7 @@ export class TwitterApiClient extends BaseApiClient {
       // For now, return mock data as Twitter Ads API requires special approval
       return this.getMockTwitterAdsAnalytics()
     } catch (error) {
-      logger.warn("Failed to get ads analytics", { error })
+      logger.error("Failed to get ads analytics", { operation: 'fetch_ads_analytics', stack: error instanceof Error ? error.stack : undefined }, error, ['twitter', 'ads', 'error'])
       return this.getMockTwitterAdsAnalytics()
     }
   }
@@ -242,7 +256,7 @@ export class TwitterApiClient extends BaseApiClient {
 
       return this.getMockTwitterAdsAnalyticsComprehensive()
     } catch (error) {
-      logger.warn("Failed to get comprehensive Twitter ads analytics", { error })
+      logger.error("Failed to get comprehensive Twitter ads analytics", { operation: 'fetch_comprehensive_ads', stack: error instanceof Error ? error.stack : undefined }, error, ['twitter', 'ads', 'error'])
       return this.getMockTwitterAdsAnalyticsComprehensive()
     }
   }
@@ -264,7 +278,7 @@ export class TwitterApiClient extends BaseApiClient {
         }
       ]
     } catch (error) {
-      logger.warn("Failed to get Twitter ad accounts", { error })
+      logger.error("Failed to get Twitter ad accounts", { operation: 'fetch_ad_accounts', stack: error instanceof Error ? error.stack : undefined }, error, ['twitter', 'ads', 'error'])
       return []
     }
   }
@@ -281,7 +295,7 @@ export class TwitterApiClient extends BaseApiClient {
     try {
       // This would call: GET https://ads-api.x.com/12/stats/accounts/:account_id
       // with proper parameters for campaign-level insights
-      logger.info("Fetching Twitter campaign insights", { accountId, startDate, endDate })
+      logger.info("Fetching Twitter campaign insights", { operation: 'fetch_campaign_insights' }, { accountId, startDate, endDate }, ['twitter', 'ads', 'campaign'])
 
       // Mock response structure based on Twitter Ads API v12
       return {
@@ -308,7 +322,7 @@ export class TwitterApiClient extends BaseApiClient {
         ]
       }
     } catch (error) {
-      logger.warn("Failed to fetch Twitter campaign insights", { error })
+      logger.error("Failed to fetch Twitter campaign insights", { operation: 'fetch_campaign_insights', stack: error instanceof Error ? error.stack : undefined }, error, ['twitter', 'ads', 'campaign', 'error'])
       return { data: [] }
     }
   }
@@ -398,7 +412,7 @@ export class TwitterApiClient extends BaseApiClient {
         analytics: analytics.status === "fulfilled" ? analytics.value : this.getMockAnalytics(),
       }
     } catch (error) {
-      logger.warn("Twitter API failed, using mock data", { error })
+      logger.error("Twitter API failed", { operation: 'fetch_data', stack: error instanceof Error ? error.stack : undefined }, error, ['twitter', 'api', 'error'])
       return this.generateMockData()
     }
   }
@@ -1005,7 +1019,7 @@ export class TwitterApiClient extends BaseApiClient {
         engagement_rate: totalImpressions > 0 ? (totalEngagements / totalImpressions) * 100 : 0,
       }
     } catch (error) {
-      logger.warn("Failed to calculate analytics", { error })
+      logger.error("Failed to calculate analytics", { operation: 'calculate_analytics', stack: error instanceof Error ? error.stack : undefined }, error, ['twitter', 'analytics', 'error'])
       return this.getMockAnalytics()
     }
   }
@@ -1022,7 +1036,7 @@ export class TwitterApiClient extends BaseApiClient {
       )
       return data.data || []
     } catch (error) {
-      logger.warn("Failed to fetch mentions", { error })
+      logger.error("Failed to fetch mentions", { operation: 'fetch_mentions', stack: error instanceof Error ? error.stack : undefined }, error, ['twitter', 'mentions', 'error'])
       return []
     }
   }

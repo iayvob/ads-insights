@@ -96,64 +96,108 @@ async function handler(request: NextRequest): Promise<NextResponse> {
             name: twitterUser.data.name
         });
 
+        // Determine which userId to use
+        const effectiveUserId = twitterOAuth1.fromUnified && twitterOAuth1.userId ? twitterOAuth1.userId : session.userId!;
+
         // Get user data from database
-        const ObjectUserData = await UserService.getUserWithProviders(session.userId!);
+        const ObjectUserData = await UserService.getUserWithProviders(effectiveUserId);
         if (!ObjectUserData) {
-            logger.error("User not found in database", { userId: session.userId });
+            logger.error("User not found in database", { userId: effectiveUserId });
             return NextResponse.redirect(
                 new URL("/profile?tab=connections&error=user_not_found&provider=twitter_oauth1", env.APP_URL)
             );
         }
 
-        // Update session with Twitter OAuth 1.0a connection 
-        const updatedSession: AuthSession = {
-            userId: ObjectUserData.id,
-            plan: ObjectUserData.plan,
-            user: {
-                email: ObjectUserData.email,
-                username: ObjectUserData.username,
-                image: ObjectUserData.image || undefined,
-            },
-            user_tokens: {
-                access_token: session?.user_tokens?.access_token || "",
-                refresh_token: session?.user_tokens?.refresh_token,
-                expires_at: session?.user_tokens?.expires_at || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-            },
-            connectedPlatforms: {
-                ...session?.connectedPlatforms,
-                twitter: {
-                    account: {
-                        userId: twitterUser.data.id,
-                        username: twitterUser.data.username,
-                        email: '', // OAuth 1.0a doesn't provide email
-                        businesses: [],
-                        adAccounts: [],
-                        advertisingAccountId: '',
-                    },
-                    account_tokens: {
-                        access_token: accessToken,
-                        refresh_token: accessSecret, // OAuth 1.0a uses secret instead of refresh
-                        expires_at: null // OAuth 1.0a tokens don't expire
-                    } as any
-                }
-            },
-        };
+        // For unified flow, we only want to add the accessTokenSecret to existing OAuth 2.0 tokens
+        if (twitterOAuth1.fromUnified && twitterOAuth1.providerId) {
+            logger.info("Unified flow: Adding OAuth 1.0a tokens to existing OAuth 2.0 connection", {
+                userId: effectiveUserId,
+                providerId: twitterOAuth1.providerId
+            });
 
-        const returnTo = twitterOAuth1.returnTo || "/profile?tab=connections";
-        const successUrl = new URL(returnTo, env.APP_URL);
-        successUrl.searchParams.set("success", "twitter_oauth1_connected");
+            // Find existing Twitter auth provider
+            const existingProvider = await UserService.findAuthProvider(effectiveUserId, "twitter", twitterOAuth1.providerId);
+
+            if (existingProvider) {
+                // Update only the accessTokenSecret field, preserving OAuth 2.0 tokens
+                await UserService.updateAuthProviderSecret(existingProvider.id, {
+                    accessTokenSecret: accessSecret,
+                });
+
+                logger.info("Twitter OAuth 1.0a tokens added to existing connection", {
+                    userId: effectiveUserId,
+                    providerId: twitterOAuth1.providerId,
+                    hasAccessToken: !!existingProvider.accessToken,
+                    hasAccessSecret: !!accessSecret,
+                    hasRefreshToken: !!existingProvider.refreshToken
+                });
+
+                // Redirect with unified success message
+                const successUrl = new URL(twitterOAuth1.returnTo, env.APP_URL);
+                successUrl.searchParams.set("success", "twitter_full_access");
+                successUrl.searchParams.set("provider", "twitter");
+                successUrl.searchParams.set("username", twitterUser.data.username);
+
+                const response = NextResponse.redirect(successUrl);
+                return addSecurityHeaders(response);
+            } else {
+                logger.warn("Existing Twitter provider not found for unified flow", {
+                    userId: effectiveUserId,
+                    providerId: twitterOAuth1.providerId
+                });
+                // Fall through to create new provider
+            }
+        }
+
+        // Store OAuth 1.0a tokens in database (standalone or fallback)
+        await UserService.upsertAuthProvider(ObjectUserData.id, {
+            provider: "twitter",
+            providerId: twitterUser.data.id,
+            username: twitterUser.data.username,
+            displayName: twitterUser.data.name || twitterUser.data.username,
+            profileImage: twitterUser.data.profile_image_url || "",
+            name: twitterUser.data.name || twitterUser.data.username,
+            followersCount: twitterUser.data.public_metrics?.followers_count || 0,
+            mediaCount: twitterUser.data.public_metrics?.tweet_count || 0,
+            canAccessInsights: true,
+            canPublishContent: true,
+            canManageAds: false,
+            analyticsSummary: JSON.stringify({
+                followers: twitterUser.data.public_metrics?.followers_count || 0,
+                following: twitterUser.data.public_metrics?.following_count || 0,
+                tweets: twitterUser.data.public_metrics?.tweet_count || 0,
+                verified: twitterUser.data.verified || false,
+            }),
+            accessToken: accessToken,
+            accessTokenSecret: accessSecret, // OAuth 1.0a access token secret
+            refreshToken: undefined, // OAuth 1.0a doesn't use refresh tokens
+            expiresAt: undefined, // OAuth 1.0a tokens don't expire
+            scopes: undefined, // OAuth 1.0a doesn't use scopes in the same way
+        });
+
+        logger.info("Twitter OAuth 1.0a tokens stored in database", {
+            userId: effectiveUserId,
+            twitterUsername: twitterUser.data.username,
+            hasAccessToken: !!accessToken,
+            hasAccessSecret: !!accessSecret,
+            isUnifiedFlow: twitterOAuth1.fromUnified
+        });
+
+        const finalReturnTo = twitterOAuth1?.returnTo || "/profile?tab=connections";
+        const successUrl = new URL(finalReturnTo, env.APP_URL);
+        successUrl.searchParams.set("success", twitterOAuth1.fromUnified ? "twitter_full_access" : "twitter_oauth1_connected");
         successUrl.searchParams.set("provider", "twitter");
         successUrl.searchParams.set("username", twitterUser.data.username);
 
         logger.info("Twitter OAuth 1.0a connection successful", {
-            userId: session.userId,
+            userId: effectiveUserId,
             twitterUsername: twitterUser.data.username,
-            redirectTo: successUrl.pathname
+            redirectTo: successUrl.pathname,
+            isUnifiedFlow: twitterOAuth1.fromUnified
         });
 
         const response = NextResponse.redirect(successUrl);
-        const responseWithSession = await ServerSessionService.setSession(request, updatedSession, response);
-        return addSecurityHeaders(responseWithSession);
+        return addSecurityHeaders(response);
 
     } catch (error) {
         logger.error("Twitter OAuth 1.0a callback failed", { error });

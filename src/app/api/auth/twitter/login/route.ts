@@ -56,6 +56,7 @@ async function handler(request: NextRequest): Promise<NextResponse> {
     console.log('🔍 Twitter OAuth scopes being requested:', scopes);
 
     // Store PKCE data and state in session for callback verification
+    // Mark this as a unified flow to trigger OAuth 1.0a after OAuth 2.0
     const updatedSession = {
       ...existingSession,
       state,
@@ -63,6 +64,7 @@ async function handler(request: NextRequest): Promise<NextResponse> {
       codeChallenge,
       returnTo,
       twitter_oauth_initiated: new Date().toISOString(),
+      twitter_unified_flow: true, // Flag to indicate we want both OAuth 1.0a and 2.0
     };
 
     // Build Twitter authorization URL with PKCE
