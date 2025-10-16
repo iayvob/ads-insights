@@ -106,27 +106,59 @@ export const MediaFileUtils = {
         const id = new ObjectId().toString();
         const now = new Date();
 
-        // Use raw command to create the document in MongoDB
-        await prisma.$runCommandRaw({
-            insert: "MediaFile",
-            documents: [{
-                _id: { $oid: id },
-                userId: data.userId,
-                filename: data.filename,
-                fileKey: data.fileKey,
-                fileType: data.fileType,
-                fileSize: data.fileSize,
-                url: data.url,
-                isVideo: data.isVideo,
-                width: data.width,
-                height: data.height,
-                duration: data.duration,
-                thumbnailUrl: data.thumbnailUrl,
-                resourceType: data.resourceType || (data.isVideo ? 'video' : 'image'),
-                createdAt: now,
-                updatedAt: now
-            }]
-        });
+        try {
+            // Use raw command to create the document in MongoDB
+            await prisma.$runCommandRaw({
+                insert: "MediaFile",
+                documents: [{
+                    _id: { $oid: id },
+                    userId: data.userId,
+                    filename: data.filename,
+                    fileKey: data.fileKey,
+                    fileType: data.fileType,
+                    fileSize: data.fileSize,
+                    url: data.url,
+                    isVideo: data.isVideo,
+                    width: data.width,
+                    height: data.height,
+                    duration: data.duration,
+                    thumbnailUrl: data.thumbnailUrl,
+                    resourceType: data.resourceType || (data.isVideo ? 'video' : 'image'),
+                    createdAt: now,
+                    updatedAt: now
+                }]
+            });
+        } catch (rawError) {
+            console.error('Raw MongoDB insert failed, trying alternative approach:', rawError);
+            // Fallback: try to use a simple insert if the collection exists
+            try {
+                // This is a fallback that might work if the collection exists
+                await prisma.$runCommandRaw({
+                    insert: "MediaFile",
+                    documents: [{
+                        _id: id,
+                        userId: data.userId,
+                        filename: data.filename,
+                        fileKey: data.fileKey,
+                        fileType: data.fileType,
+                        fileSize: data.fileSize,
+                        url: data.url,
+                        isVideo: data.isVideo,
+                        width: data.width || null,
+                        height: data.height || null,
+                        duration: data.duration || null,
+                        thumbnailUrl: data.thumbnailUrl || null,
+                        resourceType: data.resourceType || (data.isVideo ? 'video' : 'image'),
+                        createdAt: now,
+                        updatedAt: now
+                    }],
+                    ordered: false
+                });
+            } catch (fallbackError) {
+                console.error('Fallback MongoDB insert also failed:', fallbackError);
+                throw new Error(`Failed to create media file record: ${fallbackError instanceof Error ? fallbackError.message : 'Unknown error'}`);
+            }
+        }
 
         // Return the created file with its new ID and timestamps
         return {

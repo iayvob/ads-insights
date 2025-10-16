@@ -7,7 +7,6 @@ import { createHash } from "crypto"
 import { writeFile, readFile } from "fs/promises"
 import { unlink, mkdir } from "fs/promises"
 import { join } from "path"
-import { tmpdir } from "os"
 import { MediaFileUtils } from "@/utils/media-file-utils"
 import { existsSync } from "fs"
 
@@ -50,7 +49,17 @@ export async function POST(request: NextRequest) {
     }
 
     // Parse form data
-    const formData = await request.formData()
+    let formData: FormData;
+    try {
+      formData = await request.formData()
+    } catch (formError) {
+      console.error('❌ MEDIA UPLOAD: Failed to parse form data:', formError);
+      return NextResponse.json(
+        { success: false, error: "Invalid form data" },
+        { status: 400 }
+      )
+    }
+
     const files = formData.getAll("files") as File[]
     const platforms = JSON.parse(formData.get("platforms") as string || "[]")
 
@@ -103,17 +112,27 @@ export async function POST(request: NextRequest) {
         uploadedFiles.push(uploadResult)
       } catch (error) {
         console.error(`❌ MEDIA UPLOAD: Failed to upload file ${file.name}:`, error)
-        return NextResponse.json(
-          {
-            success: false,
-            error: "UPLOAD_FAILED",
-            message: `Failed to upload file: ${file.name}`,
-            details: error instanceof Error ? error.message : String(error)
-          },
-          { status: 500 }
-        )
+        // Continue processing other files instead of failing the entire request
+        console.log('🔄 MEDIA UPLOAD: Continuing with other files after error');
       }
     }
+
+    if (uploadedFiles.length === 0) {
+      console.log('❌ MEDIA UPLOAD: No files were successfully uploaded');
+      return NextResponse.json(
+        {
+          success: false,
+          error: "UPLOAD_FAILED",
+          message: "All file uploads failed"
+        },
+        { status: 500 }
+      )
+    }
+
+    console.log('✅ MEDIA UPLOAD: Upload process completed', {
+      totalFiles: files.length,
+      successfulUploads: uploadedFiles.length
+    });
 
     return NextResponse.json({
       success: true,
