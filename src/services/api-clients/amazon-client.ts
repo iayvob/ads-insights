@@ -115,9 +115,9 @@ export class AmazonApiClient {
         lastUpdated: new Date().toISOString()
       }
     } catch (error) {
-      logger.error('Error fetching Amazon analytics:', error)
-      // Return mock data as fallback
-      return this.generateMockData(userPlan, options)
+      console.error('Error fetching Amazon analytics:', error)
+      logger.error('Error fetching Amazon analytics:', { error: error instanceof Error ? error.message : String(error) })
+      throw new Error(`Failed to fetch Amazon analytics: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 
@@ -141,7 +141,7 @@ export class AmazonApiClient {
 
       return await response.json()
     } catch (error) {
-      logger.error('Error fetching Amazon profile:', error)
+      logger.error('Error fetching Amazon profile:', { error: error instanceof Error ? error.message : String(error) })
       throw new AuthError('Failed to fetch Amazon profile data')
     }
   }
@@ -188,7 +188,7 @@ export class AmazonApiClient {
         engagementTrend: processedData
       }
     } catch (error) {
-      logger.error('Error fetching Amazon posts analytics:', error)
+      logger.error('Error fetching Amazon posts analytics:', { error: error instanceof Error ? error.message : String(error) })
       return this.getMockAmazonPostsAnalytics()
     }
   }
@@ -329,7 +329,7 @@ export class AmazonApiClient {
 
       return postsAnalytics
     } catch (error) {
-      logger.error('Error fetching Amazon posts analytics:', error)
+      logger.error('Error fetching Amazon posts analytics:', { error: error instanceof Error ? error.message : String(error) })
       // Return mock data as fallback
       return this.generateMockAmazonPostsAnalytics()
     }
@@ -347,7 +347,7 @@ export class AmazonApiClient {
 
       return this.getMockAmazonAdsAnalytics() // Using mock data for now
     } catch (error) {
-      logger.error('Error fetching Amazon ads analytics:', error)
+      logger.error('Error fetching Amazon ads analytics:', { error: error instanceof Error ? error.message : String(error) })
       return this.getMockAmazonAdsAnalytics()
     }
   }
@@ -411,7 +411,7 @@ export class AmazonApiClient {
 
       return adsAnalytics
     } catch (error) {
-      logger.error('Error fetching comprehensive Amazon ads analytics:', error)
+      logger.error('Error fetching comprehensive Amazon ads analytics:', { error: error instanceof Error ? error.message : String(error) })
       return this.generateMockAmazonAdsAnalytics()
     }
   }
@@ -437,7 +437,7 @@ export class AmazonApiClient {
       const campaigns: AmazonCampaign[] = await response.json()
       return campaigns.filter(campaign => campaign.state === 'enabled')
     } catch (error) {
-      logger.error('Error fetching Amazon campaigns:', error)
+      logger.error('Error fetching Amazon campaigns:', { error: error instanceof Error ? error.message : String(error) })
       return []
     }
   }
@@ -451,7 +451,7 @@ export class AmazonApiClient {
       // For now, returning mock data structure
       return this.generateMockProductData()
     } catch (error) {
-      logger.error('Error fetching Amazon product performance:', error)
+      logger.error('Error fetching Amazon product performance:', { error: error instanceof Error ? error.message : String(error) })
       return this.generateMockProductData()
     }
   }
@@ -800,7 +800,7 @@ export class AmazonApiClient {
       // Mock implementation - in real app, this would call Amazon Selling Partner API
       return this.generateMockListingData()
     } catch (error) {
-      logger.error('Error fetching listing analytics:', error)
+      logger.error('Error fetching listing analytics:', { error: error instanceof Error ? error.message : String(error) })
       return this.generateMockListingData()
     }
   }
@@ -810,7 +810,7 @@ export class AmazonApiClient {
       // Mock implementation - in real app, this would call Amazon Brand Analytics API
       return this.generateMockBrandContentData()
     } catch (error) {
-      logger.error('Error fetching brand content analytics:', error)
+      logger.error('Error fetching brand content analytics:', { error: error instanceof Error ? error.message : String(error) })
       return this.generateMockBrandContentData()
     }
   }
@@ -820,7 +820,7 @@ export class AmazonApiClient {
       // Mock implementation - in real app, this would call Amazon Customer Analytics API
       return this.generateMockCustomerData()
     } catch (error) {
-      logger.error('Error fetching customer metrics:', error)
+      logger.error('Error fetching customer metrics:', { error: error instanceof Error ? error.message : String(error) })
       return this.generateMockCustomerData()
     }
   }

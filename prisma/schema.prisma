@@ -117,8 +117,10 @@ model AuthProvider {
 
   // OAuth tokens
   accessToken           String?
+  accessTokenSecret     String? // OAuth 1.0a access token secret
   refreshToken          String?
   expiresAt             DateTime?
+  scopes                String?    // OAuth granted scopes (space-separated string)
 
   // Platform-specific data
   advertisingAccountId  String?

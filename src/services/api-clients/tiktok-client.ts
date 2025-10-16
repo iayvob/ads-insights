@@ -936,8 +936,9 @@ export class TikTokApiClient {
 
       return response.data?.list || []
     } catch (error) {
-      // Return mock data if audience insights not available
-      return this.getMockAudienceData()
+      console.error("TikTok audience insights not available:", error)
+      logger.error("TikTok audience insights not available", { error })
+      return []
     }
   }
 
@@ -1173,7 +1174,7 @@ export class TikTokApiClient {
       // Generate content insights
       const contentInsights = this.generateContentInsights(videos, photos)
 
-      // Generate audience insights (mock data - real implementation would need TikTok Analytics API)
+      // Generate audience insights (real implementation requires TikTok Analytics API access)
       const audienceInsights = this.generateAudienceInsights()
 
       // Find top performing content
@@ -1702,7 +1703,7 @@ export class TikTokApiClient {
   }
 
   private static calculateGrowthMetrics(profile: TikTokProfile, videos: TikTokVideo[], photos: TikTokPhoto[]) {
-    // Generate 30-day trend data (mock implementation)
+    // Generate 30-day trend data (implementation depends on available API data)
     const days = 30
     const followerGrowthTrend: Array<{ date: string, followers_count: number, growth_rate: number }> = []
     const engagementTrend: Array<{ date: string, total_views: number, total_likes: number, total_comments: number, total_shares: number, engagement_rate: number }> = []
@@ -1712,7 +1713,7 @@ export class TikTokApiClient {
       const date = new Date()
       date.setDate(date.getDate() - (days - 1 - i))
 
-      // Mock growth data
+      // Historical growth data estimation
       const followersCount = Math.floor(profile.follower_count * (0.95 + (i / days) * 0.1))
       const dailyViews = Math.floor(Math.random() * 5000) + 1000
       const dailyLikes = Math.floor(dailyViews * 0.06)

@@ -13,7 +13,6 @@ import {
   File,
   X,
   Eye,
-  Download,
   RotateCcw,
   Crop,
   Sparkles,

@@ -30,13 +30,11 @@ import { AmazonInsights } from '@/components/dashboard/amazon-insights';
 import { AdsAnalyticsComponent } from '@/components/dashboard/ads-analytics-component';
 import { useAnalyticsData } from '@/hooks/use-analytics-data';
 import { useSession } from '@/hooks/session-context';
-import { generateMockAnalyticsData } from '@/lib/mock-analytics-data';
 import {
   getPlatformAccess,
   getFeatureAccess,
   getAvailablePlatforms,
 } from '@/lib/subscription-access';
-import { filterAnalyticsData } from '@/services/session-platform-manager';
 
 export default function Dashboard() {
   const router = useRouter();
@@ -44,7 +42,6 @@ export default function Dashboard() {
   const { data: analyticsData, loading, error, refetch } = useAnalyticsData();
   const [activeTab, setActiveTab] = useState('overview');
   const [refreshing, setRefreshing] = useState(false);
-  const [mockData, setMockData] = useState<any>(null);
 
   // Get user's subscription plan and platform access
   const userPlan = (session?.user?.plan || 'FREEMIUM') as any;
@@ -72,36 +69,20 @@ export default function Dashboard() {
     }
   }, [availablePlatforms, session?.connectedPlatforms, userPlan, activeTab]);
 
-  // Generate mock data for demonstration
+  // Log data loading state for debugging
   useEffect(() => {
-    if (!analyticsData && !loading && !error) {
-      const mockAnalyticsData = generateMockAnalyticsData();
-
-      // Filter data based on subscription plan for each platform
-      const filteredData: any = {};
-      availablePlatforms.forEach((platform) => {
-        if (mockAnalyticsData[platform as keyof typeof mockAnalyticsData]) {
-          filteredData[platform] = filterAnalyticsData(
-            mockAnalyticsData[platform as keyof typeof mockAnalyticsData],
-            platform,
-            userPlan
-          );
-        }
-      });
-
-      setMockData(filteredData);
+    if (error) {
+      console.error('Analytics data loading error:', error);
     }
-  }, [
-    analyticsData,
-    loading,
-    error,
-    platformAccess,
-    userPlan,
-    availablePlatforms,
-  ]);
+    if (!analyticsData && !loading && !error) {
+      console.warn(
+        'No analytics data available and no error reported. Check API endpoints.'
+      );
+    }
+  }, [analyticsData, loading, error]);
 
-  // Use real analytics data if available, otherwise fall back to mock data
-  const displayData = analyticsData || mockData;
+  // Use only real analytics data
+  const displayData = analyticsData;
 
   // Auto-switch tabs based on connected platforms
   useEffect(() => {
@@ -133,23 +114,11 @@ export default function Dashboard() {
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
+      console.log('Refreshing analytics data...');
       await refetch();
-
-      // Regenerate mock data on refresh
-      const mockAnalyticsData = generateMockAnalyticsData();
-      const filteredData: any = {};
-
-      availablePlatforms.forEach((platform) => {
-        if (mockAnalyticsData[platform as keyof typeof mockAnalyticsData]) {
-          filteredData[platform] = filterAnalyticsData(
-            mockAnalyticsData[platform as keyof typeof mockAnalyticsData],
-            platform,
-            userPlan
-          );
-        }
-      });
-
-      setMockData(filteredData);
+      console.log('Analytics data refresh completed');
+    } catch (error) {
+      console.error('Failed to refresh analytics data:', error);
     } finally {
       setRefreshing(false);
     }
@@ -483,14 +452,20 @@ export default function Dashboard() {
               transition={{ duration: 0.3 }}
             >
               <TabsContent value="overview" className="space-y-6">
-                <OverviewMetrics data={displayData} />
+                {displayData ? (
+                  <OverviewMetrics data={displayData} />
+                ) : (
+                  <div className="text-center text-muted-foreground">
+                    Loading overview metrics...
+                  </div>
+                )}
               </TabsContent>
 
               {platformAccess.instagram && (
                 <>
                   <TabsContent value="instagram" className="space-y-6">
                     <InstagramInsights
-                      data={displayData?.instagram || mockData?.instagram}
+                      data={displayData?.instagram as any}
                       error={displayData?.errors?.instagram}
                       canAccessAds={
                         session?.user?.plan === 'PREMIUM_MONTHLY' ||
@@ -503,10 +478,7 @@ export default function Dashboard() {
                       displayData?.instagram?.ads && (
                         <div className="mt-8">
                           <AdsAnalyticsComponent
-                            data={
-                              displayData?.instagram?.ads ||
-                              mockData?.instagram?.ads
-                            }
+                            data={displayData?.instagram?.ads}
                             platform="instagram"
                           />
                         </div>
@@ -539,7 +511,7 @@ export default function Dashboard() {
                 <TabsContent value="facebook" className="space-y-6">
                   {/* Using the Facebook insights component that combines posts and ads */}
                   <FacebookInsights
-                    data={displayData?.facebook || mockData?.facebook}
+                    data={displayData?.facebook as any}
                     canAccessAds={
                       session?.user?.plan === 'PREMIUM_MONTHLY' ||
                       session?.user?.plan === 'PREMIUM_YEARLY'
@@ -551,8 +523,12 @@ export default function Dashboard() {
               {platformAccess.twitter && (
                 <TabsContent value="twitter" className="space-y-6">
                   <TwitterInsights
-                    data={displayData?.twitter || mockData?.twitter}
-                    error={displayData?.errors?.twitter}
+                    data={displayData?.twitter}
+                    error={
+                      displayData?.errors?.twitter
+                        ? new Error(displayData.errors.twitter.message)
+                        : null
+                    }
                   />
                   {/* Ads Analytics for Twitter if user has premium subscription */}
                   {(session?.user?.plan === 'PREMIUM_MONTHLY' ||
@@ -560,9 +536,7 @@ export default function Dashboard() {
                     displayData?.twitter?.ads && (
                       <div className="mt-8">
                         <AdsAnalyticsComponent
-                          data={
-                            displayData?.twitter?.ads || mockData?.twitter?.ads
-                          }
+                          data={displayData?.twitter?.ads}
                           platform="twitter"
                         />
                       </div>
@@ -573,12 +547,12 @@ export default function Dashboard() {
               {platformAccess.tiktok && (
                 <TabsContent value="tiktok" className="space-y-6">
                   <TikTokInsights
-                    data={displayData?.tiktok || mockData?.tiktok}
+                    data={displayData?.tiktok}
                     canAccessAds={
                       session?.user?.plan === 'PREMIUM_MONTHLY' ||
                       session?.user?.plan === 'PREMIUM_YEARLY'
                     }
-                    error={displayData?.errors?.tiktok}
+                    error={displayData?.errors?.tiktok?.message || null}
                   />
                   {/* Ads Analytics for TikTok if user has premium subscription */}
                   {(session?.user?.plan === 'PREMIUM_MONTHLY' ||
@@ -586,9 +560,7 @@ export default function Dashboard() {
                     displayData?.tiktok?.ads && (
                       <div className="mt-8">
                         <AdsAnalyticsComponent
-                          data={
-                            displayData?.tiktok?.ads || mockData?.tiktok?.ads
-                          }
+                          data={displayData?.tiktok?.ads}
                           platform="tiktok"
                         />
                       </div>
@@ -599,12 +571,12 @@ export default function Dashboard() {
               {platformAccess.amazon && (
                 <TabsContent value="amazon" className="space-y-6">
                   <AmazonInsights
-                    data={displayData?.amazon || mockData?.amazon}
+                    data={displayData?.amazon}
                     canAccessAds={
                       session?.user?.plan === 'PREMIUM_MONTHLY' ||
                       session?.user?.plan === 'PREMIUM_YEARLY'
                     }
-                    error={displayData?.errors?.amazon}
+                    error={displayData?.errors?.amazon?.message || null}
                   />
                   {/* Ads Analytics for Amazon if user has premium subscription */}
                   {(session?.user?.plan === 'PREMIUM_MONTHLY' ||
@@ -612,9 +584,7 @@ export default function Dashboard() {
                     displayData?.amazon?.ads && (
                       <div className="mt-8">
                         <AdsAnalyticsComponent
-                          data={
-                            displayData?.amazon?.ads || mockData?.amazon?.ads
-                          }
+                          data={displayData?.amazon?.ads}
                           platform="amazon"
                         />
                       </div>

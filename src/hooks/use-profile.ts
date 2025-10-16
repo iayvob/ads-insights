@@ -17,10 +17,15 @@ export interface UserProfile {
 
 export interface AuthProvider {
   provider: "facebook" | "instagram" | "twitter" | "amazon";
+  providerId: string;
   username?: string;
   email?: string;
   createdAt: string;
   expiresAt?: string;
+  accessToken?: string;
+  accessTokenSecret?: string;
+  refreshToken?: string;
+  userId: string;
 }
 
 export interface Subscription {
@@ -62,7 +67,7 @@ export function useProfile() {
   });
   const { toast } = useToast();
   const { data: session, status, update } = useSession();
-  
+
   const [userId, setUserId] = useState<string>("");
   const lastFetchedUserIdRef = useRef<string>("");
   const isInitializedRef = useRef<boolean>(false);
@@ -211,9 +216,9 @@ export function useProfile() {
       }));
     } catch (error: any) {
       console.error("Error fetching subscription:", error);
-      
+
       const errorMessage = error.message || "Failed to load subscription data";
-      
+
       setData(prev => ({
         ...prev,
         error: errorMessage,
@@ -348,13 +353,13 @@ export function useProfile() {
 
   // Fetch subscription data only when profile is first loaded or when explicitly requested
   const [hasSubscriptionData, setHasSubscriptionData] = useState(false);
-  
+
   useEffect(() => {
     if (data.profile && !hasSubscriptionData) {
       fetchSubscription();
       setHasSubscriptionData(true);
     }
-    
+
     // Reset subscription data flag when profile changes
     if (!data.profile) {
       setHasSubscriptionData(false);
@@ -368,7 +373,7 @@ export function useProfile() {
   const synchronizeWithSession = async () => {
     try {
       console.log("Synchronizing session and profile data...");
-      
+
       // First update the session from context
       if (typeof update === 'function') {
         await update();
@@ -457,7 +462,7 @@ export function useProfile() {
       return true;
     } catch (error: any) {
       const errorMessage = error.message || "Failed to update subscription";
-      
+
       setData(prev => ({
         ...prev,
         error: errorMessage,

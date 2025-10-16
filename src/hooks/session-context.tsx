@@ -32,6 +32,7 @@ export interface PlatformConnection {
   };
   account_tokens: {
     access_token: string;
+    access_token_secret?: string; // OAuth 1.0a access token secret
     refresh_token?: string;
     expires_at: number;
   };

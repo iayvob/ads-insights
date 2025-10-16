@@ -36,11 +36,10 @@ export const OAUTH_SCOPES = {
         "instagram_basic",
         "instagram_content_publish"
     ].join(","),
-    TWITTER: "tweet.read tweet.write users.read media.write like.read follows.read offline.access", // media.write scope for future OAuth 2.0 media support
+    TWITTER: "tweet.read tweet.write users.read media.write offline.access",
     TIKTOK: "user.info.basic,video.list,video.upload,user.info.profile,user.info.stats,video.publish",
     AMAZON: "profile advertising::campaign_management advertising::campaign_read advertising::reports",
 } as const
-
 
 // Stripe Payment Plans
 export const STRIPE_PLANS = {

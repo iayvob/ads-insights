@@ -22,6 +22,8 @@ import {
   TrendingUp,
   AlertCircle,
   CheckCircle,
+  AlertTriangle,
+  ExternalLink,
 } from 'lucide-react';
 import { PlatformSelector } from '@/components/posting/platform-selector';
 import { MediaUploader } from '@/components/posting/media-uploader';
@@ -84,6 +86,7 @@ export default function PostingPage() {
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const [publishError, setPublishError] = useState<string | null>(null);
   const [publishSuccess, setPublishSuccess] = useState<string | null>(null);
+  const [needsOAuth1, setNeedsOAuth1] = useState(false);
 
   // Amazon-specific state
   const [amazonBrandContent, setAmazonBrandContent] = useState({
@@ -211,6 +214,46 @@ export default function PostingPage() {
   useEffect(() => {
     setValidationErrors(validationResult.errors);
   }, [validationResult]);
+
+  // Check if OAuth 1.0a is needed for Twitter media uploads
+  useEffect(() => {
+    const hasTwitter = selectedPlatforms.includes('twitter');
+    const hasMedia = uploadedMedia.length > 0 || mediaFiles.length > 0;
+    const twitterConnected = !!session?.connectedPlatforms?.twitter;
+
+    // Check if user has OAuth 1.0a (accessTokenSecret indicates OAuth 1.0a)
+    const hasOAuth1 =
+      twitterConnected &&
+      !!session?.connectedPlatforms?.twitter?.account_tokens
+        ?.access_token_secret;
+
+    setNeedsOAuth1(hasTwitter && hasMedia && twitterConnected && !hasOAuth1);
+  }, [selectedPlatforms, uploadedMedia, mediaFiles, session]);
+
+  const handleConnectOAuth1 = useCallback(async () => {
+    try {
+      const response = await fetch('/api/auth/twitter/oauth1/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.redirectUrl) {
+          window.location.href = data.redirectUrl;
+        } else {
+          setPublishError('Failed to initiate OAuth 1.0a authentication');
+        }
+      } else {
+        setPublishError('Failed to initiate OAuth 1.0a authentication');
+      }
+    } catch (error) {
+      console.error('OAuth 1.0a connection failed:', error);
+      setPublishError('Failed to connect with OAuth 1.0a');
+    }
+  }, []);
 
   const handleAddHashtag = useCallback(() => {
     if (currentHashtag.trim() && !hashtags.includes(currentHashtag.trim())) {
@@ -581,6 +624,31 @@ export default function PostingPage() {
                             <li key={index}>{error}</li>
                           ))}
                         </ul>
+                      </AlertDescription>
+                    </Alert>
+                  )}
+
+                  {/* OAuth 1.0a Required Alert */}
+                  {needsOAuth1 && (
+                    <Alert variant="destructive">
+                      <AlertTriangle className="h-4 w-4" />
+                      <AlertDescription>
+                        <div className="space-y-2">
+                          <p>
+                            <strong>Media Upload Limitation:</strong> X API
+                            media uploads require OAuth 1.0a authentication.
+                            Your current connection only supports text posts.
+                          </p>
+                          <Button
+                            onClick={handleConnectOAuth1}
+                            size="sm"
+                            variant="outline"
+                            className="border-orange-300 text-orange-700 hover:bg-orange-50"
+                          >
+                            <ExternalLink className="h-4 w-4 mr-2" />
+                            Connect OAuth 1.0a for Media Uploads
+                          </Button>
+                        </div>
                       </AlertDescription>
                     </Alert>
                   )}

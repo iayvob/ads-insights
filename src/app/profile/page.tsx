@@ -238,6 +238,14 @@ function ProfilePageContent() {
           successMessage =
             'X (Twitter) account connected successfully! Your analytics data will be available shortly.';
           break;
+        case 'twitter_full_access':
+          successMessage =
+            'X (Twitter) connected with full access! You can now post text tweets AND media uploads. 🎉';
+          break;
+        case 'twitter_oauth1_connected':
+          successMessage =
+            'X (Twitter) OAuth 1.0a connected! Media uploads are now enabled for your account.';
+          break;
         case 'tiktok':
           successMessage =
             'TikTok account connected successfully! Your analytics data will be available shortly.';

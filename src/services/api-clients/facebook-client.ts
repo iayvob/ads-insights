@@ -262,8 +262,9 @@ export class FacebookApiClient extends BaseApiClient {
         posts: posts.status === "fulfilled" ? posts.value as FacebookData['posts'] : this.getMockPosts(),
       }
     } catch (error) {
-      logger.warn("Facebook API failed, using mock data", { error })
-      return this.generateMockData()
+      console.error("Facebook API failed:", error)
+      logger.error("Facebook API failed", { error })
+      throw new Error(`Failed to fetch Facebook data: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 
@@ -277,8 +278,8 @@ export class FacebookApiClient extends BaseApiClient {
       const pageInfo = await this.getFacebookPageInfo(accessToken);
 
       if (!pageInfo) {
-        logger.warn("No Facebook page found, returning mock data");
-        return this.getMockPostsAnalytics();
+        logger.error("No Facebook page found")
+        throw new Error("No Facebook page linked to this account")
       }
 
       const { pageId, pageAccessToken } = pageInfo;
@@ -290,8 +291,9 @@ export class FacebookApiClient extends BaseApiClient {
       const posts = postsData.data || [];
 
       if (!posts.length) {
-        logger.warn("No posts found for Facebook page");
-        return this.getMockPostsAnalytics();
+        console.warn("No posts found for Facebook page")
+        logger.warn("No posts found for Facebook page")
+        throw new Error("No posts found for Facebook page analytics")
       }
 
       // Step 2: Get comprehensive insights for each post
@@ -428,8 +430,9 @@ export class FacebookApiClient extends BaseApiClient {
       };
 
     } catch (error) {
-      logger.error("Failed to fetch Facebook posts analytics", { error });
-      return this.getMockPostsAnalytics();
+      console.error("Failed to fetch Facebook posts analytics:", error)
+      logger.error("Failed to fetch Facebook posts analytics", { error })
+      throw new Error(`Failed to fetch Facebook posts analytics: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 
@@ -490,8 +493,9 @@ export class FacebookApiClient extends BaseApiClient {
       } as AdsAnalytics;
 
     } catch (error) {
-      logger.error("Failed to fetch Facebook ads analytics", { error });
-      return this.getMockAdsAnalytics();
+      console.error("Failed to fetch Facebook ads analytics:", error)
+      logger.error("Failed to fetch Facebook ads analytics", { error })
+      throw new Error(`Failed to fetch Facebook ads analytics: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 

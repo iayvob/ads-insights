@@ -17,6 +17,7 @@
  */
 
 import { logger } from "@/config/logger"
+import type { LogContext } from "@/config/logger"
 import { BaseApiClient } from "./base-client"
 import { InstagramAnalytics, PostAnalytics, AdsAnalytics, InstagramPostAnalytics, InstagramAdsAnalytics } from "@/validations/analytics-types"
 
@@ -131,19 +132,19 @@ export class InstagramApiClient extends BaseApiClient {
    */
   static async fetchAnalytics(accessToken: string, includeAds: boolean = false): Promise<InstagramEnhancedData> {
     try {
-      logger.info("Fetching Instagram analytics using Facebook Graph API v23.0")
+      logger.analytics("Starting Instagram analytics fetch", {
+        platform: 'instagram',
+        dataType: 'posts',
+        success: false
+      }, { operation: 'fetch_analytics' }, ['instagram', 'analytics'])
 
       // Get Instagram Business Account
       const igBusinessAccount = await this.getInstagramBusinessAccount(accessToken)
 
       if (!igBusinessAccount) {
-        logger.warn("No Instagram Business account found, using mock data")
-        return {
-          profile: this.getMockProfileData(),
-          posts: this.getMockInstagramPostsAnalytics(),
-          ads: includeAds ? this.getMockInstagramAdsAnalytics() : null,
-          lastUpdated: new Date().toISOString(),
-        }
+        console.error("No Instagram Business account found")
+        logger.error("No Instagram Business account found")
+        throw new Error("No Instagram Business account linked to this Facebook account")
       }
 
       const { igUserId, pageAccessToken } = igBusinessAccount
@@ -161,10 +162,39 @@ export class InstagramApiClient extends BaseApiClient {
       }
 
       const result: InstagramEnhancedData = {
-        profile: profileData.status === "fulfilled" ? profileData.value : this.getMockProfileData(),
-        posts: postsAnalytics.status === "fulfilled" ? postsAnalytics.value : this.getMockInstagramPostsAnalytics(),
+        profile: profileData.status === "fulfilled" ? profileData.value : {
+          id: "unknown",
+          username: "unknown",
+          followers_count: 0,
+          media_count: 0,
+          biography: "",
+          website: "",
+          profile_picture_url: "",
+          follows_count: 0,
+          account_type: "PERSONAL"
+        },
+        posts: postsAnalytics.status === "fulfilled" ? postsAnalytics.value : {
+          totalPosts: 0,
+          avgEngagement: 0,
+          avgReach: 0,
+          avgImpressions: 0,
+          totalReach: 0,
+          totalImpressions: 0,
+          totalEngagements: 0,
+          engagementRate: 0
+        } as InstagramPostAnalytics,
         ads: adsAnalytics,
         lastUpdated: new Date().toISOString(),
+      }
+
+      // Log errors for failed data fetching
+      if (profileData.status === "rejected") {
+        console.error("Failed to fetch Instagram profile data:", profileData.reason)
+        logger.error("Failed to fetch Instagram profile data", { error: profileData.reason })
+      }
+      if (postsAnalytics.status === "rejected") {
+        console.error("Failed to fetch Instagram posts analytics:", postsAnalytics.reason)
+        logger.error("Failed to fetch Instagram posts analytics", { error: postsAnalytics.reason })
       }
 
       logger.info("Instagram analytics fetched successfully", {
@@ -176,13 +206,17 @@ export class InstagramApiClient extends BaseApiClient {
       return result
 
     } catch (error) {
-      logger.error("Instagram analytics fetch failed", { error })
-      return {
-        profile: this.getMockProfileData(),
-        posts: this.getMockInstagramPostsAnalytics(),
-        ads: includeAds ? this.getMockInstagramAdsAnalytics() : null,
-        lastUpdated: new Date().toISOString(),
-      }
+      console.error("Instagram analytics fetch failed:", error)
+      logger.analytics("Instagram analytics fetch failed", {
+        platform: 'instagram',
+        dataType: 'posts',
+        success: false,
+        errorReason: error instanceof Error ? error.message : 'Unknown error'
+      }, {
+        operation: 'fetch_analytics',
+        stack: error instanceof Error ? error.stack : undefined
+      }, ['instagram', 'analytics', 'error'])
+      throw new Error(`Failed to fetch Instagram analytics: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 

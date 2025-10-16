@@ -1,56 +1,115 @@
-"use client"
+'use client';
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { TrendingUp, Users, Eye, Heart, BarChart3, Activity } from "lucide-react"
-import { MetricCard } from "./metric-card"
-import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
-import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell } from "recharts"
-import { motion } from "framer-motion"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import {
+  TrendingUp,
+  Users,
+  Eye,
+  Heart,
+  BarChart3,
+  Activity,
+} from 'lucide-react';
+import { MetricCard } from './metric-card';
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+} from '@/components/ui/chart';
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  PieChart,
+  Pie,
+  Cell,
+} from 'recharts';
+import { motion } from 'framer-motion';
 
 interface OverviewMetricsProps {
   data: {
     overview: {
-      totalReach: number
-      totalEngagement: number
-      totalFollowers: number
-      engagementRate: number
-      totalImpressions: number
-      totalPosts: number
-    }
-    facebook?: any
-    instagram?: any
-    twitter?: any
-    connectedPlatforms: string[]
-  }
+      totalReach: number;
+      totalEngagement: number;
+      totalFollowers: number;
+      engagementRate: number;
+      totalImpressions: number;
+      totalPosts: number;
+    };
+    facebook?: any;
+    instagram?: any;
+    twitter?: any;
+    connectedPlatforms: string[];
+  };
 }
 
 export function OverviewMetrics({ data }: OverviewMetricsProps) {
-  const { overview } = data
+  // Handle null or undefined data
+  if (!data) {
+    console.warn('No overview metrics data available');
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Analytics Overview</CardTitle>
+          <CardDescription>
+            No analytics data available at this time.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="text-sm text-muted-foreground space-y-2">
+            <p>• Connect your social media accounts to see analytics</p>
+            <p>• Data may be loading - check console for details</p>
+            <p>• Ensure proper API permissions are granted</p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
 
-  // Platform comparison data
-  const platformData = data.connectedPlatforms.map((platform) => {
-    const platformInfo = data[platform as keyof typeof data]
-    let followers = 0
-    let engagement = 0
+  const { overview } = data;
 
-    if (platformInfo && typeof platformInfo === "object" && !Array.isArray(platformInfo)) {
-      switch (platform) {
-        case "facebook":
-          followers = platformInfo.pageData?.fan_count || 0
-          engagement = platformInfo.insights?.engagement || 0
-          break
-        case "instagram":
-          followers = platformInfo.profile?.followers_count || 0
-          engagement =
-            platformInfo.media?.reduce(
-              (sum: number, item: any) => sum + (item.like_count || 0) + (item.comments_count || 0),
-              0,
-            ) || 0
-          break
-        case "twitter":
-          followers = platformInfo.profile?.followers_count || 0
-          engagement = platformInfo.analytics?.engagements || 0
-          break
+  // Platform comparison data with safety checks
+  const platformData = (data.connectedPlatforms || []).map((platform) => {
+    const platformInfo = data[platform as keyof typeof data];
+    let followers = 0;
+    let engagement = 0;
+
+    if (
+      platformInfo &&
+      typeof platformInfo === 'object' &&
+      !Array.isArray(platformInfo)
+    ) {
+      try {
+        switch (platform) {
+          case 'facebook':
+            followers = platformInfo.pageData?.fan_count || 0;
+            engagement = platformInfo.insights?.engagement || 0;
+            break;
+          case 'instagram':
+            followers = platformInfo.profile?.followers_count || 0;
+            engagement =
+              platformInfo.media?.reduce(
+                (sum: number, item: any) =>
+                  sum + (item.like_count || 0) + (item.comments_count || 0),
+                0
+              ) || 0;
+            break;
+          case 'twitter':
+            followers = platformInfo.profile?.followers_count || 0;
+            engagement = platformInfo.analytics?.engagements || 0;
+            break;
+        }
+      } catch (error) {
+        console.error(`Error processing ${platform} data:`, error);
       }
     }
 
@@ -58,26 +117,44 @@ export function OverviewMetrics({ data }: OverviewMetricsProps) {
       platform: platform.charAt(0).toUpperCase() + platform.slice(1),
       followers,
       engagement,
-    }
-  })
+    };
+  });
 
-  // Mock trend data for demonstration
+  // Generate trend data with safety checks
   const engagementTrend = [
-    { date: "Mon", engagement: Math.floor(overview.totalEngagement * 0.8) },
-    { date: "Tue", engagement: Math.floor(overview.totalEngagement * 0.9) },
-    { date: "Wed", engagement: Math.floor(overview.totalEngagement * 0.85) },
-    { date: "Thu", engagement: Math.floor(overview.totalEngagement * 1.1) },
-    { date: "Fri", engagement: Math.floor(overview.totalEngagement * 1.2) },
-    { date: "Sat", engagement: Math.floor(overview.totalEngagement * 1.15) },
-    { date: "Sun", engagement: overview.totalEngagement },
-  ]
+    {
+      date: 'Mon',
+      engagement: Math.floor((overview?.totalEngagement || 0) * 0.8),
+    },
+    {
+      date: 'Tue',
+      engagement: Math.floor((overview?.totalEngagement || 0) * 0.9),
+    },
+    {
+      date: 'Wed',
+      engagement: Math.floor((overview?.totalEngagement || 0) * 0.85),
+    },
+    {
+      date: 'Thu',
+      engagement: Math.floor((overview?.totalEngagement || 0) * 1.1),
+    },
+    {
+      date: 'Fri',
+      engagement: Math.floor((overview?.totalEngagement || 0) * 1.2),
+    },
+    {
+      date: 'Sat',
+      engagement: Math.floor((overview?.totalEngagement || 0) * 1.15),
+    },
+    { date: 'Sun', engagement: overview?.totalEngagement || 0 },
+  ];
 
   const audienceData = [
-    { name: "18-24", value: 25, color: "#3b82f6" },
-    { name: "25-34", value: 35, color: "#8b5cf6" },
-    { name: "35-44", value: 25, color: "#06b6d4" },
-    { name: "45+", value: 15, color: "#10b981" },
-  ]
+    { name: '18-24', value: 25, color: '#3b82f6' },
+    { name: '25-34', value: 35, color: '#8b5cf6' },
+    { name: '35-44', value: 25, color: '#06b6d4' },
+    { name: '45+', value: 15, color: '#10b981' },
+  ];
 
   return (
     <div className="space-y-6">
@@ -90,14 +167,14 @@ export function OverviewMetrics({ data }: OverviewMetricsProps) {
       >
         <MetricCard
           title="Total Reach"
-          value={overview.totalReach.toLocaleString()}
+          value={(overview?.totalReach || 0).toLocaleString()}
           icon={Eye}
           trend={8}
           description="Across all platforms"
         />
         <MetricCard
           title="Total Engagement"
-          value={overview.totalEngagement.toLocaleString()}
+          value={(overview?.totalEngagement || 0).toLocaleString()}
           icon={Heart}
           trend={12}
           description="Likes, comments, shares"
@@ -147,14 +224,16 @@ export function OverviewMetrics({ data }: OverviewMetricsProps) {
         <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
           <CardHeader>
             <CardTitle>Platform Comparison</CardTitle>
-            <CardDescription>Followers across connected platforms</CardDescription>
+            <CardDescription>
+              Followers across connected platforms
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <ChartContainer
               config={{
                 followers: {
-                  label: "Followers",
-                  color: "hsl(var(--chart-1))",
+                  label: 'Followers',
+                  color: 'hsl(var(--chart-1))',
                 },
               }}
               className="h-[300px]"
@@ -164,7 +243,11 @@ export function OverviewMetrics({ data }: OverviewMetricsProps) {
                   <XAxis dataKey="platform" />
                   <YAxis />
                   <ChartTooltip content={<ChartTooltipContent />} />
-                  <Bar dataKey="followers" fill="var(--color-followers)" radius={4} />
+                  <Bar
+                    dataKey="followers"
+                    fill="var(--color-followers)"
+                    radius={4}
+                  />
                 </BarChart>
               </ResponsiveContainer>
             </ChartContainer>
@@ -181,8 +264,8 @@ export function OverviewMetrics({ data }: OverviewMetricsProps) {
             <ChartContainer
               config={{
                 engagement: {
-                  label: "Engagement",
-                  color: "hsl(var(--chart-2))",
+                  label: 'Engagement',
+                  color: 'hsl(var(--chart-2))',
                 },
               }}
               className="h-[300px]"
@@ -197,7 +280,11 @@ export function OverviewMetrics({ data }: OverviewMetricsProps) {
                     dataKey="engagement"
                     stroke="var(--color-engagement)"
                     strokeWidth={3}
-                    dot={{ fill: "var(--color-engagement)", strokeWidth: 2, r: 4 }}
+                    dot={{
+                      fill: 'var(--color-engagement)',
+                      strokeWidth: 2,
+                      r: 4,
+                    }}
                   />
                 </LineChart>
               </ResponsiveContainer>
@@ -215,7 +302,7 @@ export function OverviewMetrics({ data }: OverviewMetricsProps) {
             <ChartContainer
               config={{
                 audience: {
-                  label: "Audience",
+                  label: 'Audience',
                 },
               }}
               className="h-[300px]"
@@ -258,7 +345,9 @@ export function OverviewMetrics({ data }: OverviewMetricsProps) {
                   <span className="font-medium">{platform.platform}</span>
                 </div>
                 <div className="text-right">
-                  <div className="font-semibold">{platform.followers.toLocaleString()}</div>
+                  <div className="font-semibold">
+                    {platform.followers.toLocaleString()}
+                  </div>
                   <div className="text-sm text-gray-500">followers</div>
                 </div>
               </div>
@@ -267,5 +356,5 @@ export function OverviewMetrics({ data }: OverviewMetricsProps) {
         </Card>
       </div>
     </div>
-  )
+  );
 }

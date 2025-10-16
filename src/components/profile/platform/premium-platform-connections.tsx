@@ -33,6 +33,7 @@ import {
   getRestrictionMessage,
 } from '@/lib/subscription-access';
 import { SubscriptionPlan } from '@prisma/client';
+import TwitterConnectionStatus from '@/components/profile/twitter-connection-status';
 
 interface PremiumPlatformConnectionProps {
   connectedPlatforms: AuthProvider[];
@@ -294,6 +295,34 @@ export function PremiumPlatformConnection({
                   {/* Connection Status */}
                   {connected && connectionData ? (
                     <div className="space-y-3">
+                      {/* Twitter status - OAuth 2.0 provides full access */}
+                      {platform.id === 'twitter' && (
+                        <div className="mb-3">
+                          <TwitterConnectionStatus
+                            hasOAuth2Connection={
+                              !!connectionData.accessToken &&
+                              !!connectionData.refreshToken
+                            }
+                            hasOAuth1Connection={
+                              !!connectionData.accessTokenSecret
+                            }
+                            username={connectionData.username}
+                            onConnectOAuth1={async () => {
+                              // Redirect to OAuth 1.0a login with unified flow params
+                              const params = new URLSearchParams({
+                                userId: connectionData.userId,
+                                providerId: connectionData.providerId,
+                                username: connectionData.username || '',
+                                from_unified: 'true',
+                                returnTo: '/profile?tab=connections',
+                              });
+                              window.location.href = `/api/auth/twitter/oauth1/login?${params.toString()}`;
+                            }}
+                            compact={true}
+                          />
+                        </div>
+                      )}
+
                       <div
                         className={`p-3 rounded-lg bg-green-50 border border-green-200`}
                       >

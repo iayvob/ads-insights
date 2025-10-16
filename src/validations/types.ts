@@ -88,6 +88,7 @@ export interface AuthSession {
       }
       account_tokens: {
         access_token: string
+        access_token_secret?: string
         refresh_token?: string
         expires_at: number
       }
@@ -138,6 +139,8 @@ export interface AuthSession {
       }
     }
   }
+  // Twitter unified OAuth flow flag
+  twitter_unified_flow?: boolean
 }
 
 // Minimal session type for lightweight storage (used in callbacks)
@@ -297,8 +300,10 @@ export interface AuthProviderInput {
   canManageAds?: boolean
   // OAuth tokens
   accessToken: string
+  accessTokenSecret?: string // OAuth 1.0a access token secret
   refreshToken?: string
   expiresAt?: Date
+  scopes?: string // OAuth granted scopes (space-separated string)
   tokenExpiresIn?: number // Time in seconds until token expires
   hasRefreshToken?: boolean // Whether the provider has a refresh token
   // Platform-specific data
