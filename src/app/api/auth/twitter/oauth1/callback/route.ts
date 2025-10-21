@@ -108,7 +108,7 @@ async function handler(request: NextRequest): Promise<NextResponse> {
             );
         }
 
-        // For unified flow, we only want to add the accessTokenSecret to existing OAuth 2.0 tokens
+        // For unified flow, we only want to add the OAuth 1.0a tokens to existing OAuth 2.0 connection
         if (twitterOAuth1.fromUnified && twitterOAuth1.providerId) {
             logger.info("Unified flow: Adding OAuth 1.0a tokens to existing OAuth 2.0 connection", {
                 userId: effectiveUserId,
@@ -119,16 +119,20 @@ async function handler(request: NextRequest): Promise<NextResponse> {
             const existingProvider = await UserService.findAuthProvider(effectiveUserId, "twitter", twitterOAuth1.providerId);
 
             if (existingProvider) {
-                // Update only the accessTokenSecret field, preserving OAuth 2.0 tokens
-                await UserService.updateAuthProviderSecret(existingProvider.id, {
-                    accessTokenSecret: accessSecret,
+                // Update with BOTH OAuth 1.0a tokens (accessToken + accessTokenSecret)
+                // This replaces the OAuth 2.0 bearer token with OAuth 1.0a tokens for media upload support
+                await UserService.updateAuthProviderOAuth1Tokens(existingProvider.id, {
+                    accessToken: accessToken, // OAuth 1.0a access token
+                    accessTokenSecret: accessSecret, // OAuth 1.0a access secret
                 });
 
                 logger.info("Twitter OAuth 1.0a tokens added to existing connection", {
                     userId: effectiveUserId,
                     providerId: twitterOAuth1.providerId,
-                    hasAccessToken: !!existingProvider.accessToken,
+                    oauth1AccessToken: accessToken.substring(0, 20) + '...',
+                    oauth1AccessTokenLength: accessToken.length,
                     hasAccessSecret: !!accessSecret,
+                    accessSecretLength: accessSecret.length,
                     hasRefreshToken: !!existingProvider.refreshToken
                 });
 

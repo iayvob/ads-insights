@@ -12,27 +12,41 @@ export class UserService {
    */
   static async buildFullSessionFromMinimal(minimalSession: AuthSession): Promise<AuthSession> {
     try {
+      logger.info("Building full session from minimal", { userId: minimalSession.userId });
+
       const user = await prisma.user.findUnique({
         where: { id: minimalSession.userId },
       });
 
       if (!user) {
+        logger.error("User not found for session", { userId: minimalSession.userId });
         throw new DatabaseError("User not found");
       }
 
+      logger.info("User found, getting active providers", { userId: minimalSession.userId });
       const authProviders = await this.getActiveProviders(minimalSession.userId);
-      
+      logger.info("Active providers retrieved", {
+        userId: minimalSession.userId,
+        providerCount: authProviders.length,
+        providers: authProviders.map(p => p.provider)
+      });
+
       // Build connected platforms data
       const connectedPlatforms: AuthSession['connectedPlatforms'] = {};
 
       for (const provider of authProviders) {
+        logger.info("Processing provider", {
+          provider: provider.provider,
+          providerId: provider.providerId
+        });
+
         let businessAccounts = null;
         let analyticsSummary = null;
 
         try {
           if (provider.businessAccounts) {
-            businessAccounts = typeof provider.businessAccounts === 'string' 
-              ? JSON.parse(provider.businessAccounts) 
+            businessAccounts = typeof provider.businessAccounts === 'string'
+              ? JSON.parse(provider.businessAccounts)
               : provider.businessAccounts;
           }
           if (provider.analyticsSummary) {
@@ -63,6 +77,7 @@ export class UserService {
           } as any,
           account_tokens: {
             access_token: provider.accessToken || '',
+            access_token_secret: provider.accessTokenSecret, // Include OAuth 1.0a secret
             refresh_token: provider.refreshToken,
             expires_at: provider.expiresAt?.toISOString() || new Date(Date.now() + 3600000).toISOString(),
           },
@@ -72,6 +87,7 @@ export class UserService {
         } as any;
       }
 
+      logger.info("Building final session object", { userId: minimalSession.userId });
       const fullSession: AuthSession = {
         userId: minimalSession.userId,
         plan: user.plan,
@@ -89,11 +105,17 @@ export class UserService {
         connectedPlatforms,
       };
 
+      logger.info("Full session built successfully", { userId: minimalSession.userId });
       return fullSession;
     } catch (error) {
-      logger.error("Failed to build full session from minimal", { 
-        userId: minimalSession.userId, 
-        error: error instanceof Error ? error.message : "Unknown error" 
+      logger.error("Failed to build full session from minimal", {
+        userId: minimalSession.userId,
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack
+        } : String(error),
+        step: "unknown"
       });
       throw new DatabaseError("Failed to build session data");
     }
@@ -174,8 +196,8 @@ export class UserService {
   static async upsertAuthProvider(userId: string, providerData: AuthProviderInput): Promise<AuthProvider> {
     try {
       // Debug logging
-      logger.info("Upserting auth provider", { 
-        userId, 
+      logger.info("Upserting auth provider", {
+        userId,
         provider: providerData.provider,
         providerId: providerData.providerId,
         hasAccessToken: !!providerData.accessToken,
@@ -203,9 +225,9 @@ export class UserService {
 
       if (existingProviderForUser) {
         // Case 1: User already has this provider type - update it
-        logger.info("Updating existing provider for user", { 
+        logger.info("Updating existing provider for user", {
           providerId: existingProviderForUser.id,
-          provider: providerData.provider 
+          provider: providerData.provider
         })
         result = await prisma.authProvider.update({
           where: { id: existingProviderForUser.id },
@@ -223,8 +245,10 @@ export class UserService {
             canPublishContent: providerData.canPublishContent,
             canManageAds: providerData.canManageAds,
             accessToken: providerData.accessToken,
+            accessTokenSecret: providerData.accessTokenSecret,
             refreshToken: providerData.refreshToken,
             expiresAt: providerData.expiresAt,
+            ...(providerData.scopes && { scopes: providerData.scopes }), // Conditionally add scopes
             advertisingAccountId: providerData.advertisingAccountId,
             businessAccounts: providerData.businessAccounts ? JSON.stringify(providerData.businessAccounts) : null,
             adAccounts: providerData.adAccounts ? JSON.stringify(providerData.adAccounts) : null,
@@ -235,7 +259,7 @@ export class UserService {
         })
       } else if (existingProviderWithId && existingProviderWithId.userId !== userId) {
         // Case 2: Another user has this exact providerId - transfer it to current user
-        logger.info("Transferring provider from different user", { 
+        logger.info("Transferring provider from different user", {
           fromUserId: existingProviderWithId.userId,
           toUserId: userId,
           providerId: existingProviderWithId.id,
@@ -257,8 +281,10 @@ export class UserService {
             canPublishContent: providerData.canPublishContent,
             canManageAds: providerData.canManageAds,
             accessToken: providerData.accessToken,
+            accessTokenSecret: providerData.accessTokenSecret,
             refreshToken: providerData.refreshToken,
             expiresAt: providerData.expiresAt,
+            ...(providerData.scopes && { scopes: providerData.scopes }),
             advertisingAccountId: providerData.advertisingAccountId,
             businessAccounts: providerData.businessAccounts ? JSON.stringify(providerData.businessAccounts) : null,
             adAccounts: providerData.adAccounts ? JSON.stringify(providerData.adAccounts) : null,
@@ -269,9 +295,9 @@ export class UserService {
         })
       } else if (existingProviderWithId && existingProviderWithId.userId === userId) {
         // Case 3: User already has this exact provider - just update it
-        logger.info("Updating existing provider with same ID for same user", { 
+        logger.info("Updating existing provider with same ID for same user", {
           providerId: existingProviderWithId.id,
-          provider: providerData.provider 
+          provider: providerData.provider
         })
         result = await prisma.authProvider.update({
           where: { id: existingProviderWithId.id },
@@ -288,8 +314,10 @@ export class UserService {
             canPublishContent: providerData.canPublishContent,
             canManageAds: providerData.canManageAds,
             accessToken: providerData.accessToken,
+            accessTokenSecret: providerData.accessTokenSecret,
             refreshToken: providerData.refreshToken,
             expiresAt: providerData.expiresAt,
+            ...(providerData.scopes && { scopes: providerData.scopes }),
             advertisingAccountId: providerData.advertisingAccountId,
             businessAccounts: providerData.businessAccounts ? JSON.stringify(providerData.businessAccounts) : null,
             adAccounts: providerData.adAccounts ? JSON.stringify(providerData.adAccounts) : null,
@@ -300,10 +328,10 @@ export class UserService {
         })
       } else {
         // Case 4: Completely new provider - create it
-        logger.info("Creating new provider", { 
+        logger.info("Creating new provider", {
           provider: providerData.provider,
           userId,
-          providerId: providerData.providerId 
+          providerId: providerData.providerId
         })
         result = await prisma.authProvider.create({
           data: {
@@ -322,6 +350,7 @@ export class UserService {
             canPublishContent: providerData.canPublishContent,
             canManageAds: providerData.canManageAds,
             accessToken: providerData.accessToken,
+            accessTokenSecret: providerData.accessTokenSecret,
             refreshToken: providerData.refreshToken,
             expiresAt: providerData.expiresAt,
             advertisingAccountId: providerData.advertisingAccountId,
@@ -329,11 +358,12 @@ export class UserService {
             adAccounts: providerData.adAccounts ? JSON.stringify(providerData.adAccounts) : null,
             configId: providerData.configId,
             analyticsSummary: providerData.analyticsSummary ? JSON.stringify(providerData.analyticsSummary) : null,
+            ...(providerData.scopes && { scopes: providerData.scopes }),
           },
         })
       }
 
-      logger.info("Auth provider upserted successfully", { 
+      logger.info("Auth provider upserted successfully", {
         providerId: result.id,
         provider: result.provider,
         hasAccessToken: !!result.accessToken
@@ -342,24 +372,24 @@ export class UserService {
       return result
     } catch (error) {
       logger.error("Failed to upsert auth provider", { error, userId, provider: providerData.provider })
-      
+
       // Enhanced error handling for constraint violations
       if (error && typeof error === 'object' && 'code' in error && error.code === 'P2002') {
-        logger.error("Database constraint violation - attempting recovery", { 
+        logger.error("Database constraint violation - attempting recovery", {
           error,
           userId,
           provider: providerData.provider,
           providerId: providerData.providerId
         })
-        
+
         // Try to find and update the conflicting record
         try {
           const conflictingProvider = await prisma.authProvider.findFirst({
             where: {
               OR: [
-                { 
+                {
                   provider: providerData.provider as any,
-                  providerId: providerData.providerId 
+                  providerId: providerData.providerId
                 },
                 {
                   userId,
@@ -368,13 +398,13 @@ export class UserService {
               ]
             },
           })
-          
+
           if (conflictingProvider) {
-            logger.info("Found conflicting provider, updating it", { 
+            logger.info("Found conflicting provider, updating it", {
               conflictingProviderId: conflictingProvider.id,
               conflictingUserId: conflictingProvider.userId
             })
-            
+
             return await prisma.authProvider.update({
               where: { id: conflictingProvider.id },
               data: {
@@ -390,7 +420,8 @@ export class UserService {
                 businessAccounts: providerData.businessAccounts ? JSON.stringify(providerData.businessAccounts) : null,
                 adAccounts: providerData.adAccounts ? JSON.stringify(providerData.adAccounts) : null,
                 configId: providerData.configId,
-                updatedAt: new Date()
+                updatedAt: new Date(),
+                ...(providerData.scopes && { scopes: providerData.scopes }),
               },
             })
           }
@@ -398,7 +429,7 @@ export class UserService {
           logger.error("Recovery attempt failed", { recoveryError })
         }
       }
-      
+
       throw new DatabaseError("Failed to save authentication provider")
     }
   }
@@ -445,10 +476,10 @@ export class UserService {
   static async getActiveProviders(userId: string): Promise<AuthProvider[]> {
     try {
       const now = new Date()
-      
+
       // Debug logging
       logger.info("Getting active providers", { userId })
-      
+
       const providers = await prisma.authProvider.findMany({
         where: {
           userId,
@@ -456,7 +487,7 @@ export class UserService {
             not: null
           },
           OR: [
-            { expiresAt: null }, 
+            { expiresAt: null },
             { expiresAt: { gt: now } }
           ],
         },
@@ -464,20 +495,20 @@ export class UserService {
           createdAt: 'desc'
         }
       })
-      
-      logger.info("Active providers found", { 
-        userId, 
+
+      logger.info("Active providers found", {
+        userId,
         count: providers.length,
-        providers: providers.map(p => ({ 
-          provider: p.provider, 
-          id: p.id, 
+        providers: providers.map(p => ({
+          provider: p.provider,
+          id: p.id,
           providerId: p.providerId,
           expiresAt: p.expiresAt,
           hasAccessToken: !!p.accessToken,
           accessTokenLength: p.accessToken?.length || 0
         }))
       })
-      
+
       return providers
     } catch (error) {
       logger.error("Failed to get active providers", { error, userId })
@@ -549,7 +580,7 @@ export class UserService {
     const threshold = new Date(Date.now() + APP_CONFIG.TOKEN_REFRESH_THRESHOLD)
     return provider.expiresAt <= threshold
   }
-  
+
   /**
    * Get a specific provider by its ID
    */
@@ -559,20 +590,20 @@ export class UserService {
         where: { id: providerId }
       });
     } catch (error) {
-      logger.error("Failed to get provider by ID", { 
-        providerId, 
-        error: error instanceof Error ? error.message : String(error) 
+      logger.error("Failed to get provider by ID", {
+        providerId,
+        error: error instanceof Error ? error.message : String(error)
       });
       return null;
     }
   }
-  
+
   /**
    * Update a provider's access token and expiration
    */
   static async updateProviderToken(
-    providerId: string, 
-    accessToken: string, 
+    providerId: string,
+    accessToken: string,
     refreshToken: string | null = null,
     expiresAt: Date
   ): Promise<AuthProvider | null> {
@@ -586,7 +617,7 @@ export class UserService {
           updatedAt: new Date()
         }
       });
-      
+
       logger.info("Provider token updated", {
         providerId,
         provider: provider.provider,
@@ -594,12 +625,115 @@ export class UserService {
         hasRefreshToken: !!provider.refreshToken,
         expiresAt: provider.expiresAt
       });
-      
+
       return provider;
     } catch (error) {
-      logger.error("Failed to update provider token", { 
-        providerId, 
-        error: error instanceof Error ? error.message : String(error) 
+      logger.error("Failed to update provider token", {
+        providerId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return null;
+    }
+  }
+
+  /**
+   * Find an auth provider by userId, provider type, and providerId
+   */
+  static async findAuthProvider(
+    userId: string,
+    provider: string,
+    providerId: string
+  ): Promise<AuthProvider | null> {
+    try {
+      const authProvider = await prisma.authProvider.findFirst({
+        where: {
+          userId,
+          provider: provider as any,
+          providerId
+        }
+      });
+
+      return authProvider;
+    } catch (error) {
+      logger.error("Failed to find auth provider", {
+        userId,
+        provider,
+        providerId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return null;
+    }
+  }
+
+  /**
+   * Update only the accessTokenSecret field for OAuth 1.0a
+   * Used in unified flow to add OAuth 1.0a tokens to existing OAuth 2.0 connection
+   */
+  static async updateAuthProviderSecret(
+    authProviderId: string,
+    data: { accessTokenSecret: string }
+  ): Promise<AuthProvider | null> {
+    try {
+      const provider = await prisma.authProvider.update({
+        where: { id: authProviderId },
+        data: {
+          accessTokenSecret: data.accessTokenSecret,
+          updatedAt: new Date()
+        }
+      });
+
+      logger.info("Provider OAuth 1.0a secret updated", {
+        authProviderId,
+        provider: provider.provider,
+        hasAccessToken: !!provider.accessToken,
+        hasAccessSecret: !!provider.accessTokenSecret,
+        hasRefreshToken: !!provider.refreshToken
+      });
+
+      return provider;
+    } catch (error) {
+      logger.error("Failed to update provider secret", {
+        authProviderId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return null;
+    }
+  }
+
+  /**
+   * Update both OAuth 1.0a accessToken and accessTokenSecret
+   * Used in unified flow to replace OAuth 2.0 tokens with OAuth 1.0a tokens for media upload support
+   */
+  static async updateAuthProviderOAuth1Tokens(
+    authProviderId: string,
+    data: { accessToken: string; accessTokenSecret: string }
+  ): Promise<AuthProvider | null> {
+    try {
+      const provider = await prisma.authProvider.update({
+        where: { id: authProviderId },
+        data: {
+          accessToken: data.accessToken, // OAuth 1.0a access token
+          accessTokenSecret: data.accessTokenSecret, // OAuth 1.0a access secret
+          expiresAt: null, // OAuth 1.0a tokens don't expire
+          updatedAt: new Date()
+        }
+      });
+
+      logger.info("Provider OAuth 1.0a tokens updated", {
+        authProviderId,
+        provider: provider.provider,
+        oauth1AccessToken: provider.accessToken?.substring(0, 20) + '...',
+        accessTokenLength: provider.accessToken?.length,
+        hasAccessSecret: !!provider.accessTokenSecret,
+        accessSecretLength: provider.accessTokenSecret?.length,
+        hasRefreshToken: !!provider.refreshToken
+      });
+
+      return provider;
+    } catch (error) {
+      logger.error("Failed to update provider OAuth 1.0a tokens", {
+        authProviderId,
+        error: error instanceof Error ? error.message : String(error)
       });
       return null;
     }
