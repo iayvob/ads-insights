@@ -228,10 +228,18 @@ async function validatePlatformConnections(userId: string, platforms: string[]):
     // (those with valid tokens that haven't expired)
     const connectedPlatforms = authProviders
       .filter(provider => {
-        // Check if the provider has a valid access token and it hasn't expired
-        return provider.accessToken &&
-          provider.expiresAt &&
-          new Date(provider.expiresAt) > new Date();
+        // Check if the provider has a valid access token
+        if (!provider.accessToken) {
+          return false;
+        }
+
+        // If expiresAt is null, token doesn't expire (e.g., OAuth 1.0a)
+        if (!provider.expiresAt) {
+          return true;
+        }
+
+        // Otherwise, check if token hasn't expired
+        return new Date(provider.expiresAt) > new Date();
       })
       .map(provider => provider.provider);
 
