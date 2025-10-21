@@ -3,6 +3,12 @@ import { readFile } from "fs/promises"
 import { join } from "path"
 import { existsSync } from "fs"
 import { ServerSessionService } from "@/services/session-server"
+import { tmpdir } from "os"
+
+// Use /tmp directory for serverless environments (Vercel)
+// In development, use local uploads directory
+const isProduction = process.env.NODE_ENV === 'production'
+const uploadsDir = isProduction ? join(tmpdir(), 'uploads') : join(process.cwd(), 'uploads')
 
 // Handle GET requests to serve uploaded files
 export async function GET(
@@ -34,7 +40,6 @@ export async function GET(
         }
 
         // Construct file path
-        const uploadsDir = join(process.cwd(), 'uploads')
         const filePath = join(uploadsDir, userId, filename)
         console.log('🔍 File path construction:', { uploadsDir, userId, filename, filePath });
 

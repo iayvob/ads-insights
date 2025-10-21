@@ -9,9 +9,14 @@ import { unlink, mkdir } from "fs/promises"
 import { join } from "path"
 import { MediaFileUtils } from "@/utils/media-file-utils"
 import { existsSync } from "fs"
+import { tmpdir } from "os"
+
+// Use /tmp directory for serverless environments (Vercel)
+// In development, use local uploads directory
+const isProduction = process.env.NODE_ENV === 'production'
+const uploadsDir = isProduction ? join(tmpdir(), 'uploads') : join(process.cwd(), 'uploads')
 
 // Create uploads directory if it doesn't exist
-const uploadsDir = join(process.cwd(), 'uploads')
 if (!existsSync(uploadsDir)) {
   mkdir(uploadsDir, { recursive: true }).catch(console.error)
 }
