@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "npx prisma generate && next build",
+    "postbuild": "next-sitemap",
     "start": "next start",
     "lint": "next lint",
     "lint:fix": "next lint --fix",
@@ -16,6 +17,7 @@
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:studio": "prisma studio",
+    "clean": "rm -rf .next node_modules/.cache",
     "test": "jest",
     "test:api": "node scripts/test-social-apis.js",
     "test:api:verbose": "node scripts/test-social-apis.js --verbose",
@@ -23,7 +25,8 @@
     "test:instagram": "node scripts/test-social-apis.js instagram",
     "test:twitter": "node scripts/test-social-apis.js twitter",
     "test:linkedin": "node scripts/test-social-apis.js linkedin",
-    "security:audit": "npm audit"
+    "security:audit": "npm audit",
+    "analyze": "ANALYZE=true next build"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.886.0",

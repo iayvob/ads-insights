@@ -1,0 +1,60 @@
+# Dependencies
+node_modules
+
+# Testing
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+**/*.spec.tsx
+coverage
+.nyc_output
+
+# Documentation
+*.md
+!README.md
+docs
+TESTING_GUIDE.md
+TWITTER_OAUTH_AUDIT.md
+
+# Development files
+.env.development.local
+.env.local
+.env.test
+
+# Test files
+test-*.js
+check-*.js
+debug-*.js
+*.test.js
+*.spec.js
+
+# Build cache
+.next/cache
+.turbo
+
+# Misc
+.DS_Store
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# Temporary files
+uploads
+tmp
+temp
+
+# Git
+.git
+.gitignore
+
+# Scripts
+scripts/*.js
+!scripts/postinstall.js
