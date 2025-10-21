@@ -3,23 +3,8 @@ import { ServerSessionService } from "@/services/session-server"
 import { validatePremiumAccess } from "@/lib/subscription-access"
 import { MediaUploadResponse, PlatformConstraints } from "@/validations/posting-types"
 import sharp from "sharp"
-import { createHash } from "crypto"
-import { writeFile, readFile } from "fs/promises"
-import { unlink, mkdir } from "fs/promises"
-import { join } from "path"
 import { MediaFileUtils } from "@/utils/media-file-utils"
-import { existsSync } from "fs"
-import { tmpdir } from "os"
-
-// Use /tmp directory for serverless environments (Vercel)
-// In development, use local uploads directory
-const isProduction = process.env.NODE_ENV === 'production'
-const uploadsDir = isProduction ? join(tmpdir(), 'uploads') : join(process.cwd(), 'uploads')
-
-// Create uploads directory if it doesn't exist
-if (!existsSync(uploadsDir)) {
-  mkdir(uploadsDir, { recursive: true }).catch(console.error)
-}
+import { uploadToCloudinary, deleteFromCloudinary, getCloudinaryThumbnail } from "@/config/cloudinary"
 
 export async function POST(request: NextRequest) {
   try {
@@ -278,110 +263,95 @@ function validateSingleFile(file: File, platforms: string[], index: number): any
 }
 
 /**
- * Process and upload a file locally and store metadata in database
+ * Process and upload a file to Cloudinary and store metadata in database
  */
 async function processFileUpload(file: File, userId: string): Promise<MediaUploadResponse> {
-  // 1. Generate unique filename with user ID prefix for security
-  const fileHash = createHash('md5')
-    .update(`${file.name}-${Date.now()}-${Math.random()}`)
-    .digest('hex')
-    .slice(0, 10)
+  console.log('🔍 MEDIA UPLOAD: Processing file for Cloudinary', file.name);
 
-  const uniqueFilename = `${userId}-${fileHash}-${Date.now()}.${file.name.split('.').pop()}`
   const isVideo = file.type.startsWith("video/")
 
-  // 2. Create user directory and save file permanently
-  const userUploadsDir = join(uploadsDir, userId)
-  if (!existsSync(userUploadsDir)) {
-    await mkdir(userUploadsDir, { recursive: true })
-  }
-
-  const filePath = join(userUploadsDir, uniqueFilename)
-
-  // 3. Convert File to Buffer and save to local filesystem
+  // 1. Convert File to Buffer
   const arrayBuffer = await file.arrayBuffer()
   const buffer = Buffer.from(arrayBuffer)
 
-  console.log('🔍 MEDIA UPLOAD: Writing file to:', filePath, 'Size:', buffer.length);
-  await writeFile(filePath, buffer)
-
-  console.log('🔍 MEDIA UPLOAD: File written, checking existence...');
-  const fileExists = existsSync(filePath);
-  console.log('🔍 MEDIA UPLOAD: File exists after write:', fileExists);
+  console.log('🔍 MEDIA UPLOAD: File converted to buffer, size:', buffer.length);
 
   try {
-    // 4. Extract metadata from file
-    let dimensions: { width: number; height: number } | undefined
-    let duration: number | undefined
-    let thumbnailUrl: string | undefined
-
-    if (!isVideo) {
-      // For images, use sharp to extract dimensions
-      try {
-        const metadata = await sharp(buffer).metadata()
-        if (metadata.width && metadata.height) {
-          dimensions = {
-            width: metadata.width,
-            height: metadata.height
-          }
-        }
-      } catch (error) {
-        console.error('Error processing image metadata:', error)
-      }
-    }
-
-    // 5. Generate local file URL that matches our working file serving route
-    const fileUrl = `/api/uploads/${userId}/${uniqueFilename}`
-
-    // 6. Generate thumbnail for display (optional)
-    if (!isVideo && dimensions) {
-      // Create a thumbnail using sharp for images
-      try {
-        const thumbnailFilename = `thumb-${uniqueFilename}`
-        const thumbnailPath = join(userUploadsDir, thumbnailFilename)
-
-        await sharp(buffer)
-          .resize(300, 300, { fit: 'cover' })
-          .jpeg({ quality: 80 })
-          .toFile(thumbnailPath)
-
-        thumbnailUrl = `/api/uploads/${userId}/${thumbnailFilename}`
-      } catch (error) {
-        console.error('Error creating thumbnail:', error)
-        thumbnailUrl = fileUrl // Fallback to original image
-      }
-    } else {
-      thumbnailUrl = fileUrl // For videos, use original file as thumbnail for now
-    }
-
-    console.log('Local file upload result:', {
-      fileKey: uniqueFilename,
-      url: fileUrl,
-      filePath,
-      thumbnailUrl,
-      hasFile: existsSync(filePath)
+    // 2. Upload to Cloudinary
+    const uploadResult = await uploadToCloudinary(buffer, {
+      folder: `users/${userId}`,
+      resourceType: isVideo ? 'video' : 'image',
     });
 
-    // 7. Store file info in the database using our utility
+    console.log('✅ MEDIA UPLOAD: File uploaded to Cloudinary', {
+      publicId: uploadResult.publicId,
+      url: uploadResult.secureUrl,
+      width: uploadResult.width,
+      height: uploadResult.height,
+    });
+
+    // 3. Extract metadata
+    let dimensions: { width: number; height: number } | undefined
+    let duration: number | undefined
+
+    if (!isVideo && uploadResult.width && uploadResult.height) {
+      dimensions = {
+        width: uploadResult.width,
+        height: uploadResult.height
+      }
+    }
+
+    if (isVideo && uploadResult.duration) {
+      duration = uploadResult.duration
+    }
+
+    // 4. Generate thumbnail URL
+    let thumbnailUrl: string
+    if (!isVideo) {
+      // For images, use Cloudinary's thumbnail transformation
+      thumbnailUrl = getCloudinaryThumbnail(uploadResult.publicId, {
+        width: 300,
+        height: 300,
+        crop: 'fill',
+        quality: 80
+      })
+    } else {
+      // For videos, Cloudinary automatically generates video thumbnails
+      thumbnailUrl = getCloudinaryThumbnail(uploadResult.publicId, {
+        width: 300,
+        height: 300,
+        crop: 'fill',
+      })
+    }
+
+    console.log('🔍 MEDIA UPLOAD: Cloudinary upload complete', {
+      url: uploadResult.secureUrl,
+      publicId: uploadResult.publicId,
+      thumbnailUrl,
+    });
+
+    // 5. Store file info in the database
     const mediaFile = await MediaFileUtils.create({
       userId,
       filename: file.name,
-      fileKey: uniqueFilename, // Store local filename instead of Cloudinary public_id
+      fileKey: uploadResult.publicId, // Store Cloudinary public_id as fileKey
       fileType: file.type,
       fileSize: file.size,
-      url: fileUrl, // Local file URL
+      url: uploadResult.secureUrl, // Cloudinary secure URL
       isVideo,
       width: dimensions?.width,
       height: dimensions?.height,
       duration,
       thumbnailUrl,
-      resourceType: isVideo ? 'video' : 'image'
+      resourceType: uploadResult.resourceType
     })
 
-    // 8. Return media upload response
+    console.log('✅ MEDIA UPLOAD: Database record created', { mediaId: mediaFile.id });
+
+    // 6. Return media upload response
     return {
       id: mediaFile.id,
-      url: fileUrl,
+      url: uploadResult.secureUrl,
       filename: file.name,
       type: isVideo ? "video" : "image",
       size: file.size,
@@ -389,16 +359,13 @@ async function processFileUpload(file: File, userId: string): Promise<MediaUploa
       duration
     }
   } catch (error) {
-    // Clean up file in case of error
-    try {
-      await unlink(filePath)
-    } catch { }
+    console.error('❌ MEDIA UPLOAD: Cloudinary upload failed:', error);
     throw error
   }
 }
 
 /**
- * Delete a media file from local storage and remove from database
+ * Delete a media file from Cloudinary and remove from database
  */
 async function deleteMediaFile(mediaId: string, userId: string): Promise<boolean> {
   try {
@@ -409,31 +376,17 @@ async function deleteMediaFile(mediaId: string, userId: string): Promise<boolean
       return false // Not found or not authorized
     }
 
-    // 2. Delete from local filesystem
-    const userUploadsDir = join(uploadsDir, userId)
-    const filePath = join(userUploadsDir, mediaFile.fileKey)
-
+    // 2. Delete from Cloudinary
     try {
-      await unlink(filePath)
+      const resourceType = mediaFile.isVideo ? 'video' : 'image'
+      await deleteFromCloudinary(mediaFile.fileKey, resourceType)
+      console.log('✅ File deleted from Cloudinary:', mediaFile.fileKey)
     } catch (error) {
-      console.warn(`File not found on disk: ${filePath}`)
-      // Continue with database cleanup even if file doesn't exist
+      console.warn(`Failed to delete file from Cloudinary: ${mediaFile.fileKey}`, error)
+      // Continue with database cleanup even if Cloudinary delete fails
     }
 
-    // 3. Delete thumbnail if it exists
-    if (mediaFile.thumbnailUrl && mediaFile.thumbnailUrl.includes('thumb-')) {
-      const thumbnailFilename = mediaFile.thumbnailUrl.split('/').pop()
-      if (thumbnailFilename) {
-        const thumbnailPath = join(userUploadsDir, thumbnailFilename)
-        try {
-          await unlink(thumbnailPath)
-        } catch (error) {
-          console.warn(`Thumbnail not found on disk: ${thumbnailPath}`)
-        }
-      }
-    }
-
-    // 4. Remove from database using utility
+    // 3. Remove from database using utility
     await MediaFileUtils.deleteById(mediaId)
 
     return true
