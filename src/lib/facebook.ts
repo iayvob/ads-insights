@@ -71,7 +71,8 @@ export async function postImage(
         throw new Error('Failed to get page access token');
     }
 
-    // Check if this is a local file URL or external URL
+    // Check if this is a Cloudinary URL (external HTTPS) or local file URL
+    // Cloudinary URLs (https://res.cloudinary.com/...) will skip the local file handling
     if (imageUrl.startsWith('/uploads/') || imageUrl.startsWith('/api/uploads/') || imageUrl.startsWith('http://localhost')) {
         // Try URL-based upload first (simpler approach)
         console.log('🔍 Facebook: Trying URL-based photo upload...');
@@ -99,7 +100,12 @@ export async function postImage(
                 }
             });
         });
-    } const FacebookAPI = initFacebook(pageAccessToken);
+    }
+
+    // For Cloudinary URLs (or any external HTTPS URL), use direct URL upload
+    // This is the preferred method and works reliably
+    console.log('🔍 Facebook: Using URL-based photo upload for external URL');
+    const FacebookAPI = initFacebook(pageAccessToken);
 
     return new Promise((resolve, reject) => {
         FacebookAPI.api(`/${pageId}/photos`, 'post', { url: imageUrl, caption }, (res: any) => {
@@ -121,12 +127,16 @@ export async function postVideo(
         throw new Error('Failed to get page access token');
     }
 
-    // Check if this is a local file URL or external URL
+    // Check if this is a Cloudinary URL (external HTTPS) or local file URL
+    // Cloudinary URLs will skip the local file handling
     if (videoUrl.startsWith('/uploads/') || videoUrl.startsWith('/api/uploads/') || videoUrl.startsWith(env.APP_URL)) {
         // This is a local file, we need to upload it directly
         return await postVideoFromLocalFile(pageId, pageAccessToken, videoUrl, description);
     }
 
+    // For Cloudinary URLs (or any external HTTPS URL), use direct URL upload
+    // This is the preferred method for cloud-hosted videos
+    console.log('🔍 Facebook: Using URL-based video upload for external URL');
     const FacebookAPI = initFacebook(pageAccessToken);
 
     return new Promise((resolve, reject) => {

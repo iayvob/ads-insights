@@ -182,7 +182,9 @@ export async function postInstagramImage(
     console.log('🔍 Instagram photo upload starting...', { igBusinessAccountId, imageUrl: imageUrl.substring(0, 100) + '...' });
 
     try {
-        // Step 1: Try URL-based upload first
+        // Step 1: Prepare URL for upload
+        // For Cloudinary URLs (https://res.cloudinary.com/...), use them directly
+        // For local URLs, convert to absolute URL
         let absoluteUrl = imageUrl;
         if (imageUrl.startsWith('/')) {
             absoluteUrl = `${env.APP_URL}${imageUrl}`;
@@ -191,6 +193,7 @@ export async function postInstagramImage(
             const url = new URL(imageUrl);
             absoluteUrl = `${env.APP_URL}${url.pathname}`;
         }
+        // Cloudinary URLs (and other HTTPS URLs) pass through unchanged
 
         console.log('🔍 Instagram: Attempting URL-based upload with:', absoluteUrl.substring(0, 100) + '...');
         console.log('🔍 Instagram: Using Instagram Business Account ID:', igBusinessAccountId);
@@ -393,7 +396,9 @@ export async function postInstagramVideo(
     console.log('🔍 Instagram video upload starting...', { igBusinessAccountId, videoUrl: videoUrl.substring(0, 100) + '...' });
 
     try {
-        // Step 1: Create media container using URL
+        // Step 1: Prepare URL for upload
+        // For Cloudinary URLs (https://res.cloudinary.com/...), use them directly
+        // For local URLs, convert to absolute URL
         let absoluteUrl = videoUrl;
         if (videoUrl.startsWith('/')) {
             absoluteUrl = `${env.APP_URL}${videoUrl}`;
@@ -402,6 +407,7 @@ export async function postInstagramVideo(
             const url = new URL(videoUrl);
             absoluteUrl = `${env.APP_URL}${url.pathname}`;
         }
+        // Cloudinary URLs (and other HTTPS URLs) pass through unchanged
 
         console.log('🔍 Instagram: Creating video container with URL:', absoluteUrl.substring(0, 100) + '...');
         console.log('🔍 Instagram: Using user access token for video upload authentication');
@@ -491,10 +497,13 @@ export async function postInstagramCarousel(
 
         for (let i = 0; i < mediaItems.length; i++) {
             const media = mediaItems[i];
+
+            // Prepare URL - Cloudinary URLs pass through unchanged
             let absoluteUrl = media.url;
             if (media.url.startsWith('/')) {
                 absoluteUrl = `${env.APP_URL}${media.url}`;
             }
+            // Cloudinary URLs (and other HTTPS URLs) are used directly
 
             console.log(`🔍 Instagram: Creating carousel item ${i + 1}/${mediaItems.length}:`, absoluteUrl.substring(0, 100) + '...');
 
