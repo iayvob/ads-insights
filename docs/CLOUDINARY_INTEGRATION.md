@@ -1,4 +1,4 @@
-# Cloudinary Media Upload Integration
+Cloudinary Media Upload Integration
 
 ## Overview
 

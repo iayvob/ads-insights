@@ -106,23 +106,37 @@ export function getFeatureAccess(plan: SubscriptionPlan): FeatureAccess {
  * Check if a specific platform is accessible
  */
 export function isPlatformAccessible(platform: string, plan: SubscriptionPlan): boolean {
+  // Add debug logging to trace access issues
+  console.log(`🔍 Checking platform access: ${platform} for plan: ${plan}`);
+  
   const access = getPlatformAccess(plan);
+  console.log(`🔍 Platform access rights:`, access);
 
+  let hasAccess = false;
+  
   switch (platform.toLowerCase()) {
     case "facebook":
-      return access.facebook;
+      hasAccess = access.facebook;
+      break;
     case "instagram":
-      return access.instagram;
+      hasAccess = access.instagram;
+      break;
     case "twitter":
     case "x":
-      return access.twitter;
+      hasAccess = access.twitter;
+      break;
     case "tiktok":
-      return access.tiktok;
+      hasAccess = access.tiktok;
+      break;
     case "amazon":
-      return access.amazon;
+      hasAccess = access.amazon;
+      break;
     default:
-      return false;
+      hasAccess = false;
   }
+  
+  console.log(`✅ Platform ${platform} access result: ${hasAccess}`);
+  return hasAccess;
 }
 
 /**
