@@ -427,7 +427,7 @@ function ProfilePageContent() {
         plan: profile.plan,
         message: getRestrictionMessage('platform', platform),
       });
-      
+
       toast({
         title: 'Premium Feature',
         description: getRestrictionMessage('platform', platform),
@@ -435,7 +435,7 @@ function ProfilePageContent() {
       });
       return;
     }
-    
+
     console.log('✅ Platform access granted:', platform);
 
     setLoading(platform);
@@ -658,19 +658,6 @@ function ProfilePageContent() {
     <div
       className={`min-h-screen ${backgroundGradient} relative overflow-hidden`}
     >
-      {/* Debug Info - Remove in production */}
-      {profile && (
-        <div className="fixed bottom-4 right-4 z-50 bg-white p-4 rounded-lg shadow-lg border-2 border-blue-500 max-w-sm">
-          <h3 className="font-bold text-sm mb-2">🔍 Debug Info</h3>
-          <div className="text-xs space-y-1">
-            <p><strong>Plan:</strong> {profile.plan}</p>
-            <p><strong>Is Premium:</strong> {isPremium() ? 'Yes' : 'No'}</p>
-            <p><strong>User ID:</strong> {profile.id.substring(0, 8)}...</p>
-            <p><strong>Connected:</strong> {profile.authProviders?.length || 0} platforms</p>
-          </div>
-        </div>
-      )}
-      
       {/* Animated Background Elements */}
       <div className="absolute inset-0 overflow-hidden">
         <motion.div

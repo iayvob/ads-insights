@@ -108,12 +108,12 @@ export function getFeatureAccess(plan: SubscriptionPlan): FeatureAccess {
 export function isPlatformAccessible(platform: string, plan: SubscriptionPlan): boolean {
   // Add debug logging to trace access issues
   console.log(`🔍 Checking platform access: ${platform} for plan: ${plan}`);
-  
+
   const access = getPlatformAccess(plan);
   console.log(`🔍 Platform access rights:`, access);
 
   let hasAccess = false;
-  
+
   switch (platform.toLowerCase()) {
     case "facebook":
       hasAccess = access.facebook;
@@ -134,7 +134,7 @@ export function isPlatformAccessible(platform: string, plan: SubscriptionPlan): 
     default:
       hasAccess = false;
   }
-  
+
   console.log(`✅ Platform ${platform} access result: ${hasAccess}`);
   return hasAccess;
 }

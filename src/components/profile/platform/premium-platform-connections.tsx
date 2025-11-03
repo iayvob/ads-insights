@@ -1,4 +1,5 @@
 'use client';
+import React from 'react';
 import { motion } from 'framer-motion';
 import {
   Card,
@@ -54,6 +55,15 @@ export function PremiumPlatformConnection({
   onConnect,
   onDisconnect,
 }: PremiumPlatformConnectionProps) {
+  // Debug: Log connected platforms to trace state issues
+  React.useEffect(() => {
+    console.log('🔍 PremiumPlatformConnection - connectedPlatforms:', {
+      count: connectedPlatforms.length,
+      platforms: connectedPlatforms.map((p) => p.provider),
+      data: connectedPlatforms,
+    });
+  }, [connectedPlatforms]);
+
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-US', {
       year: 'numeric',
@@ -63,9 +73,11 @@ export function PremiumPlatformConnection({
   };
 
   const isConnected = (platform: string) => {
-    return connectedPlatforms.some(
+    const connected = connectedPlatforms.some(
       (provider) => provider.provider === platform
     );
+    console.log(`🔍 isConnected('${platform}'):`, connected);
+    return connected;
   };
 
   const getConnectionData = (platform: string) => {

@@ -60,6 +60,15 @@ export function FreemiumPlatformConnections({
     }
   };
 
+  // Debug: Log to trace connection state
+  React.useEffect(() => {
+    console.log('🔍 FreemiumPlatformConnections - connectedPlatforms:', {
+      count: connectedPlatforms.length,
+      platforms: connectedPlatforms.map((p) => p.provider),
+      hasTwitter: connectedPlatforms.some((p) => p.provider === 'twitter'),
+    });
+  }, [connectedPlatforms]);
+
   const isConnected = connectedPlatforms.some(
     (platform) => platform.provider === 'twitter'
   );
@@ -67,6 +76,12 @@ export function FreemiumPlatformConnections({
     (platform) => platform.provider === 'twitter'
   );
   const isLoadingTwitter = loading === 'twitter';
+
+  console.log('🔍 Twitter connection status:', {
+    isConnected,
+    hasConnectionData: !!connectionData,
+    isLoadingTwitter,
+  });
 
   // Reset states when connection is complete
   React.useEffect(() => {
