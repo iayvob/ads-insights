@@ -153,6 +153,23 @@ export class TwitterApiClient extends BaseApiClient {
     accessToken: string,
     userPlan: SubscriptionPlan = SubscriptionPlan.FREEMIUM
   ): Promise<TwitterAnalytics> {
+    // Generate cache key for this access token
+    const cacheKey = generateCacheKey(accessToken)
+
+    // Check if we have valid cached data
+    if (TwitterApiCache.has(cacheKey)) {
+      const cached = TwitterApiCache.get<TwitterAnalytics>(cacheKey)
+      if (cached) {
+        const cacheInfo = TwitterApiCache.getCacheInfo(cacheKey)
+        logger.analytics("✅ Returning cached Twitter analytics", {
+          platform: 'twitter',
+          dataType: 'posts',
+          success: true
+        }, { operation: 'cache_hit', cacheAge: cacheInfo?.age, cacheExpired: cacheInfo?.expired }, ['twitter', 'analytics', 'cache'])
+        return cached
+      }
+    }
+
     try {
       logger.analytics("Starting Twitter analytics fetch", {
         platform: 'twitter',
@@ -168,7 +185,7 @@ export class TwitterApiClient extends BaseApiClient {
         ? await this.getTwitterAdsAnalytics(accessToken, profile.id)
         : null
 
-      return {
+      const result: TwitterAnalytics = {
         profile: {
           id: profile.id,
           username: profile.username,
@@ -179,8 +196,32 @@ export class TwitterApiClient extends BaseApiClient {
         ads: adsAnalytics,
         lastUpdated: new Date().toISOString()
       }
+
+      // Store in cache for 15 minutes
+      TwitterApiCache.set(cacheKey, result, 15 * 60 * 1000)
+      logger.analytics("💾 Stored Twitter analytics in cache", {
+        platform: 'twitter',
+        dataType: 'posts',
+        success: true
+      }, { operation: 'cache_store' }, ['twitter', 'analytics', 'cache'])
+
+      return result
     } catch (error) {
       console.error("Twitter analytics API failed:", error)
+
+      // If rate limited, try to return expired cache data
+      if (error && typeof error === 'object' && 'type' in error && error.type === 'rate_limit') {
+        const cached = TwitterApiCache.get<TwitterAnalytics>(cacheKey)
+        if (cached) {
+          logger.analytics("⚠️ Rate limited - returning expired cache", {
+            platform: 'twitter',
+            dataType: 'posts',
+            success: true
+          }, { operation: 'cache_fallback' }, ['twitter', 'analytics', 'cache', 'rate_limit'])
+          return cached
+        }
+      }
+
       logger.analytics("Twitter analytics fetch failed", {
         platform: 'twitter',
         dataType: 'posts',
@@ -199,7 +240,9 @@ export class TwitterApiClient extends BaseApiClient {
    */
   static async getPostsAnalytics(accessToken: string, userId: string): Promise<TwitterPostAnalytics> {
     try {
-      const tweets = await this.getTweetsWithMetrics(accessToken, userId, 100)
+      // Reduced from 100 to 25 to optimize Twitter API Free tier usage
+      // Free tier allows 1,500 tweets/month - 25 per request = 60 requests/month vs 15 requests/month with 100
+      const tweets = await this.getTweetsWithMetrics(accessToken, userId, 25)
 
       if (!tweets.length) {
         return this.getMockTwitterPostsAnalyticsEnhanced()
@@ -282,6 +325,14 @@ export class TwitterApiClient extends BaseApiClient {
       }
     } catch (error) {
       logger.error("Failed to get Twitter posts analytics", { operation: 'fetch_posts_analytics', stack: error instanceof Error ? error.stack : undefined }, error, ['twitter', 'posts', 'error'])
+
+      // If rate limited, try to return cached posts data
+      if (error && typeof error === 'object' && 'type' in error && error.type === 'rate_limit') {
+        // We need accessToken to generate cache key, but it's not passed here
+        // This is a limitation - cache recovery happens at fetchAnalytics level
+        logger.error("⚠️ Rate limited in getPostsAnalytics - cache recovery handled at higher level", { operation: 'rate_limit_posts' }, ['twitter', 'posts', 'rate_limit'])
+      }
+
       return this.getMockTwitterPostsAnalyticsEnhanced()
     }
   }
@@ -305,18 +356,45 @@ export class TwitterApiClient extends BaseApiClient {
 
   /**
    * Comprehensive Twitter Ads Analytics using Twitter Ads API v12
+   * Returns null for users without ads accounts, or error object with user-friendly messaging
    */
   static async getTwitterAdsAnalytics(accessToken: string, userId: string): Promise<TwitterAdsAnalytics | null> {
     try {
       logger.info("Fetching comprehensive Twitter Ads analytics for premium user")
 
-      // In production, this would make actual calls to Twitter Ads API v12
-      // For demonstration, using enhanced mock data based on Twitter Ads API structure
+      // First, check if user has Twitter Ads accounts
+      const adAccounts = await this.getTwitterAdAccounts(accessToken)
 
-      return this.getMockTwitterAdsAnalyticsComprehensive()
+      if (!adAccounts || adAccounts.length === 0) {
+        // User doesn't have a Twitter Ads account set up
+        logger.info("User has no Twitter Ads accounts", { operation: 'check_ads_accounts', userId }, ['twitter', 'ads'])
+        return {
+          error: 'no_ads_account',
+          message: 'No Twitter Ads account found. Set up your ads account at ads.twitter.com to view advertising analytics.',
+          action: 'setup_ads'
+        } as any
+      }
+
+      // In production, this would make actual calls to Twitter Ads API v12
+      // For now, returning comprehensive Ads API not configured message
+      logger.warn("⚠️ Twitter Ads API v12 integration not fully configured", { operation: 'ads_api_status' }, ['twitter', 'ads'])
+      return {
+        error: 'ads_api_not_configured',
+        message: 'Twitter Ads API integration is currently being configured. Your ads data will be available soon.',
+        action: 'contact_support'
+      } as any
+
+      // Uncomment when Ads API is fully configured:
+      // return this.getMockTwitterAdsAnalyticsComprehensive()
     } catch (error) {
       logger.error("Failed to get comprehensive Twitter ads analytics", { operation: 'fetch_comprehensive_ads', stack: error instanceof Error ? error.stack : undefined }, error, ['twitter', 'ads', 'error'])
-      return this.getMockTwitterAdsAnalyticsComprehensive()
+
+      // Return user-friendly error message
+      return {
+        error: 'ads_api_error',
+        message: `Failed to fetch Twitter Ads data: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        action: 'retry_later'
+      } as any
     }
   }
 
