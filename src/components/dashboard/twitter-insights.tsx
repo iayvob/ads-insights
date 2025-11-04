@@ -362,7 +362,31 @@ export function TwitterInsights({
               </div>
             </div>
             <div>
-              <CardTitle className="text-xl">Twitter/X Insights</CardTitle>
+              <div className="flex items-center gap-2">
+                <CardTitle className="text-xl">Twitter/X Insights</CardTitle>
+                {hasAdsAccess && (
+                  <Badge
+                    variant={twitterAds ? 'default' : 'secondary'}
+                    className={
+                      twitterAds
+                        ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                        : 'bg-gray-100 text-gray-600'
+                    }
+                  >
+                    {twitterAds ? (
+                      <>
+                        <span className="mr-1">✓</span>
+                        Ads API Active
+                      </>
+                    ) : (
+                      <>
+                        <span className="mr-1">✗</span>
+                        Ads API Not Available
+                      </>
+                    )}
+                  </Badge>
+                )}
+              </div>
               <CardDescription>
                 {data.lastUpdated &&
                   `Updated ${new Date(data.lastUpdated).toLocaleDateString()}`}
@@ -820,25 +844,59 @@ export function TwitterInsights({
                 </div>
               </div>
             ) : !twitterAds ? (
-              // Premium user but no ads data returned
+              // Premium user but no X Ads API access
               <div className="py-12">
                 <div className="flex flex-col items-center justify-center text-center">
-                  <div className="rounded-full bg-yellow-100 p-3 mb-4">
-                    <AlertCircle className="h-6 w-6 text-yellow-600" />
+                  <div className="rounded-full bg-blue-100 p-3 mb-4">
+                    <Target className="h-6 w-6 text-blue-600" />
                   </div>
                   <h3 className="text-lg font-medium text-gray-700 mb-2">
-                    No Ads Data Available
+                    X Ads API Access Required
                   </h3>
-                  <p className="text-gray-500 mb-6 max-w-md">
-                    Unable to load Twitter Ads analytics. Please try again
-                    later.
+                  <p className="text-gray-500 mb-4 max-w-md">
+                    Your X (Twitter) account does not have Ads API access. This
+                    is separate from your Premium subscription and requires
+                    additional setup on X's platform.
                   </p>
-                  <Button
-                    variant="outline"
-                    onClick={() => window.location.reload()}
-                  >
-                    Retry
-                  </Button>
+                  <div className="text-left bg-gray-50 p-4 rounded-lg mb-6 max-w-md">
+                    <p className="text-sm font-medium text-gray-700 mb-2">
+                      To enable X Ads analytics:
+                    </p>
+                    <ol className="text-sm text-gray-600 space-y-1.5 list-decimal list-inside">
+                      <li>Set up an advertising account at ads.x.com</li>
+                      <li>
+                        Apply for X Ads API access at{' '}
+                        <a
+                          href="https://ads.x.com/help"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 hover:underline"
+                        >
+                          ads.x.com/help
+                        </a>
+                      </li>
+                      <li>
+                        Once approved, reconnect your X account with ads
+                        permissions
+                      </li>
+                    </ol>
+                  </div>
+                  <div className="flex gap-3">
+                    <Button
+                      className="bg-gradient-to-r from-blue-400 to-blue-600 hover:from-blue-500 hover:to-blue-700"
+                      onClick={() => window.open('https://ads.x.com', '_blank')}
+                    >
+                      Visit X Ads Center
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() =>
+                        window.open('https://ads.x.com/help', '_blank')
+                      }
+                    >
+                      Learn More
+                    </Button>
+                  </div>
                 </div>
               </div>
             ) : (twitterAds as any).error ? (
@@ -894,6 +952,22 @@ export function TwitterInsights({
               </div>
             ) : (
               <>
+                {/* Data Freshness Indicator */}
+                {(twitterAds as any).metadata?.fetchedAt && (
+                  <Alert className="mb-4 bg-blue-50 border-blue-200">
+                    <div className="flex items-center gap-2">
+                      <RefreshCcw className="h-4 w-4 text-blue-600" />
+                      <div className="text-sm text-blue-900">
+                        <strong>Live Data:</strong> Last updated{' '}
+                        {new Date(
+                          (twitterAds as any).metadata.fetchedAt
+                        ).toLocaleString()}
+                        {' from X Ads API v11'}
+                      </div>
+                    </div>
+                  </Alert>
+                )}
+
                 {/* Campaign Performance Overview */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   <MetricCard
