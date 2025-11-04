@@ -798,7 +798,8 @@ export function TwitterInsights({
 
           {/* Ads Performance Tab */}
           <TabsContent value="ads" className="space-y-6">
-            {!hasAdsAccess || !twitterAds ? (
+            {!hasAdsAccess ? (
+              // User doesn't have Premium plan - show upgrade prompt
               <div className="py-12">
                 <div className="flex flex-col items-center justify-center text-center">
                   <div className="rounded-full bg-gray-100 p-3 mb-4">
@@ -816,6 +817,79 @@ export function TwitterInsights({
                   <Button className="bg-gradient-to-r from-blue-400 to-blue-600 hover:from-blue-500 hover:to-blue-700">
                     Upgrade to Premium
                   </Button>
+                </div>
+              </div>
+            ) : !twitterAds ? (
+              // Premium user but no ads data returned
+              <div className="py-12">
+                <div className="flex flex-col items-center justify-center text-center">
+                  <div className="rounded-full bg-yellow-100 p-3 mb-4">
+                    <AlertCircle className="h-6 w-6 text-yellow-600" />
+                  </div>
+                  <h3 className="text-lg font-medium text-gray-700 mb-2">
+                    No Ads Data Available
+                  </h3>
+                  <p className="text-gray-500 mb-6 max-w-md">
+                    Unable to load Twitter Ads analytics. Please try again
+                    later.
+                  </p>
+                  <Button
+                    variant="outline"
+                    onClick={() => window.location.reload()}
+                  >
+                    Retry
+                  </Button>
+                </div>
+              </div>
+            ) : (twitterAds as any).error ? (
+              // Premium user with specific error from API
+              <div className="py-12">
+                <div className="flex flex-col items-center justify-center text-center">
+                  <div
+                    className={`rounded-full p-3 mb-4 ${
+                      (twitterAds as any).error === 'no_ads_account'
+                        ? 'bg-blue-100'
+                        : 'bg-yellow-100'
+                    }`}
+                  >
+                    {(twitterAds as any).error === 'no_ads_account' ? (
+                      <Target className="h-6 w-6 text-blue-600" />
+                    ) : (
+                      <AlertCircle className="h-6 w-6 text-yellow-600" />
+                    )}
+                  </div>
+                  <h3 className="text-lg font-medium text-gray-700 mb-2">
+                    {(twitterAds as any).error === 'no_ads_account'
+                      ? 'Set Up Twitter Ads'
+                      : (twitterAds as any).error === 'ads_api_not_configured'
+                        ? 'Coming Soon'
+                        : 'Ads Data Unavailable'}
+                  </h3>
+                  <p className="text-gray-500 mb-6 max-w-md">
+                    {(twitterAds as any).message ||
+                      'Unable to fetch Twitter Ads data'}
+                  </p>
+                  {(twitterAds as any).action === 'setup_ads' && (
+                    <Button
+                      className="bg-gradient-to-r from-blue-400 to-blue-600 hover:from-blue-500 hover:to-blue-700"
+                      onClick={() =>
+                        window.open('https://ads.twitter.com', '_blank')
+                      }
+                    >
+                      Set Up Ads Account
+                    </Button>
+                  )}
+                  {(twitterAds as any).action === 'retry_later' && (
+                    <Button
+                      variant="outline"
+                      onClick={() => window.location.reload()}
+                    >
+                      Try Again
+                    </Button>
+                  )}
+                  {(twitterAds as any).action === 'contact_support' && (
+                    <Button variant="outline">Contact Support</Button>
+                  )}
                 </div>
               </div>
             ) : (
