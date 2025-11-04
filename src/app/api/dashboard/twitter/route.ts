@@ -73,7 +73,9 @@ export const GET = withErrorHandling(async (request: NextRequest) => {
       plan: userPlan,
       hasPostsData: !!twitterData.posts,
       hasAdsData: !!twitterData.ads,
-      username: twitterData.profile?.username
+      username: twitterData.profile?.username,
+      hasAdsAccess: hasAdsAccess,
+      adsApiStatus: twitterData.ads ? "active" : hasAdsAccess ? "no_x_ads_api_access" : "freemium_plan"
     })
 
     const response = NextResponse.json({
