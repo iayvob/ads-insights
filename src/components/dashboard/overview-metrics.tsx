@@ -202,16 +202,16 @@ export function OverviewMetrics({ data }: OverviewMetricsProps) {
         />
         <MetricCard
           title="Total Followers"
-          value={overview.totalFollowers.toLocaleString()}
+          value={(overview?.totalFollowers || 0).toLocaleString()}
           icon={Users}
           trend={5}
           description="Combined followers"
         />
         <MetricCard
           title="Engagement Rate"
-          value={`${overview.engagementRate.toFixed(1)}%`}
+          value={`${(overview?.engagementRate || 0).toFixed(1)}%`}
           icon={TrendingUp}
-          trend={overview.engagementRate > 3 ? 2 : -1}
+          trend={(overview?.engagementRate || 0) > 3 ? 2 : -1}
           description="Average across platforms"
         />
       </motion.div>
@@ -225,14 +225,14 @@ export function OverviewMetrics({ data }: OverviewMetricsProps) {
       >
         <MetricCard
           title="Total Impressions"
-          value={overview.totalImpressions.toLocaleString()}
+          value={(overview?.totalImpressions || 0).toLocaleString()}
           icon={Activity}
           trend={15}
           description="Content views"
         />
         <MetricCard
           title="Total Posts"
-          value={overview.totalPosts.toLocaleString()}
+          value={(overview?.totalPosts || 0).toLocaleString()}
           icon={BarChart3}
           trend={3}
           description="Published content"
@@ -367,7 +367,7 @@ export function OverviewMetrics({ data }: OverviewMetricsProps) {
                 </div>
                 <div className="text-right">
                   <div className="font-semibold">
-                    {platform.followers.toLocaleString()}
+                    {(platform?.followers || 0).toLocaleString()}
                   </div>
                   <div className="text-sm text-gray-500">followers</div>
                 </div>

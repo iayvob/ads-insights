@@ -75,7 +75,12 @@ interface AdsAnalyticsComponentProps {
 }
 
 // Format numbers for display
-const formatNumber = (num: number): string => {
+const formatNumber = (num: number | undefined | null): string => {
+  // Handle undefined, null, or NaN values
+  if (num === undefined || num === null || isNaN(num)) {
+    return '0';
+  }
+
   if (num >= 1000000) {
     return (num / 1000000).toFixed(1) + 'M';
   } else if (num >= 1000) {
@@ -85,7 +90,12 @@ const formatNumber = (num: number): string => {
 };
 
 // Format currency
-const formatCurrency = (amount: number): string => {
+const formatCurrency = (amount: number | undefined | null): string => {
+  // Handle undefined, null, or NaN values
+  if (amount === undefined || amount === null || isNaN(amount)) {
+    return '$0.00';
+  }
+
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
@@ -370,7 +380,9 @@ export function AdsAnalyticsComponent({
             </div>
             <span className="text-sm font-medium">CTR</span>
           </div>
-          <div className="text-2xl font-bold mt-2">{data.ctr.toFixed(2)}%</div>
+          <div className="text-2xl font-bold mt-2">
+            {(data.ctr || 0).toFixed(2)}%
+          </div>
           <p className="text-xs text-gray-500 mt-1">Click-through rate</p>
         </motion.div>
       </div>
