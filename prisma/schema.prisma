@@ -3,6 +3,7 @@
 
 generator client {
   provider = "prisma-client-js"
+  engineType = "binary"
 }
 
 datasource db {
@@ -116,11 +117,12 @@ model AuthProvider {
   canManageAds          Boolean?  @default(false)
 
   // OAuth tokens
-  accessToken           String?
-  accessTokenSecret     String? // OAuth 1.0a access token secret
-  refreshToken          String?
-  expiresAt             DateTime?
-  scopes                String?    // OAuth granted scopes (space-separated string)
+  accessToken           String?   // OAuth 2.0 Bearer token (for Twitter API v2 analytics)
+  oauth1AccessToken     String?   // OAuth 1.0a access token (for Twitter media uploads)
+  accessTokenSecret     String?   // OAuth 1.0a access token secret
+  refreshToken          String?   // OAuth 2.0 refresh token
+  expiresAt             DateTime? // OAuth 2.0 token expiration
+  scopes                String?   // OAuth granted scopes (space-separated string)
 
   // Platform-specific data
   advertisingAccountId  String?

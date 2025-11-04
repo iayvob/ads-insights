@@ -1,11 +1,11 @@
 import { logger } from "@/config/logger"
-import { 
-  FacebookAnalytics, 
-  InstagramAnalytics, 
+import {
+  FacebookAnalytics,
+  InstagramAnalytics,
   TwitterAnalytics,
   TikTokAnalytics,
   AmazonAnalytics,
-  PlatformType 
+  PlatformType
 } from "@/validations/analytics-types"
 import { FacebookApiClient } from "./api-clients/facebook-client"
 import { InstagramApiClient } from "./api-clients/instagram-client"
@@ -52,20 +52,20 @@ export interface AnalyticsDashboardData {
  * Supports separation between posts and ads analytics based on user subscription
  */
 export class AnalyticsDashboardService {
-  
+
   /**
    * Fetch comprehensive analytics dashboard data for a user
    */
   static async getAnalyticsDashboardData(userId: string): Promise<AnalyticsDashboardData> {
     const activeProviders = await UserService.getActiveProviders(userId)
-    
+
     // Debug logging
-    logger.info("Getting analytics dashboard data", { 
-      userId, 
+    logger.info("Getting analytics dashboard data", {
+      userId,
       activeProvidersCount: activeProviders.length,
       providers: activeProviders.map(p => ({ provider: p.provider, id: p.id, expiresAt: p.expiresAt }))
     })
-    
+
     // Check if user has premium subscription
     const userPlan = await this.getUserPlan(userId)
     const includeAds = userPlan === SubscriptionPlan.PREMIUM_MONTHLY || userPlan === SubscriptionPlan.PREMIUM_YEARLY
@@ -91,7 +91,7 @@ export class AnalyticsDashboardService {
     }
 
     // Fetch data from each platform
-    const platformPromises = activeProviders.map((provider) => 
+    const platformPromises = activeProviders.map((provider) =>
       this.fetchPlatformAnalytics(provider, includeAds)
     )
 
@@ -114,12 +114,12 @@ export class AnalyticsDashboardService {
         } else if (provider.provider === 'amazon') {
           dashboardData.amazon = result.value as AmazonAnalytics
         }
-        
+
         // Aggregate overview data
         this.aggregateAnalyticsOverview(dashboardData.overview, result.value, includeAds)
       } else {
         const error = result.status === "rejected" ? result.reason : "Unknown error";
-        
+
         // Handle specific error types with more detailed error information
         if (error.type === "no_business_account") {
           dashboardData.errors![provider.provider as PlatformType] = {
@@ -137,7 +137,7 @@ export class AnalyticsDashboardService {
               resetTime: error.details?.resetTime
             }
           };
-          
+
           logger.info(`Rate limit handled gracefully for ${provider.provider}`, {
             userId,
             platform: provider.provider,
@@ -240,10 +240,10 @@ export class AnalyticsDashboardService {
               businessAccountsType: typeof provider.businessAccounts,
               businessAccountsRaw: provider.businessAccounts ? provider.businessAccounts.slice(0, 200) + '...' : 'null' // Log first 200 chars for debugging
             });
-            
+
             if (!provider.businessAccounts) {
-              const businessAccountError = new Error("Instagram Business account not connected") as Error & { 
-                code?: string; 
+              const businessAccountError = new Error("Instagram Business account not connected") as Error & {
+                code?: string;
                 type?: string;
                 details?: any;
               };
@@ -255,20 +255,20 @@ export class AnalyticsDashboardService {
               };
               throw businessAccountError;
             }
-            
+
             const businessData = JSON.parse(provider.businessAccounts || '{}')
             const businessAccounts = businessData.business_accounts || []
-            
+
             logger.info("Parsed Instagram business data", {
               providerId: provider.id,
               businessAccountsCount: businessAccounts.length,
               businessDataKeys: Object.keys(businessData),
               firstAccountId: businessAccounts[0]?.id
             });
-            
+
             if (businessAccounts.length === 0) {
-              const businessAccountError = new Error("Instagram Business account not connected") as Error & { 
-                code?: string; 
+              const businessAccountError = new Error("Instagram Business account not connected") as Error & {
+                code?: string;
                 type?: string;
                 details?: any;
               };
@@ -299,13 +299,13 @@ export class AnalyticsDashboardService {
               },
               media: [] // Would need separate API call to get actual media
             }
-            
+
             return AnalyticsAdapter.transformInstagramData(mockInstagramData, includeAds)
           } catch (error: any) {
             // Handle Instagram Business account specific errors
             if (error.code === "NO_BUSINESS_ACCOUNT" || error.message?.includes("Instagram Business account")) {
-              const businessAccountError = new Error("Instagram Business account not connected") as Error & { 
-                code?: string; 
+              const businessAccountError = new Error("Instagram Business account not connected") as Error & {
+                code?: string;
                 type?: string;
                 details?: any;
               };
@@ -326,6 +326,24 @@ export class AnalyticsDashboardService {
             const userPlan = await this.getUserPlan(provider.userId || '')
             const subscriptionPlan = userPlan === SubscriptionPlan.PREMIUM_MONTHLY || userPlan === SubscriptionPlan.PREMIUM_YEARLY ? 'PREMIUM' : 'FREEMIUM'
 
+            // 🔍 DEBUG: Log token information
+            // NOTE: OAuth 2.0 Bearer tokens are typically 80-150+ characters (often base64 encoded)
+            // OAuth 1.0a tokens are typically 50 characters
+            const isOAuth2 = provider.accessToken?.length >= 80;
+            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+            console.log('🔑 TWITTER TOKEN DEBUG - Analytics Dashboard');
+            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+            console.log('📋 Provider Info:', {
+              id: provider.id,
+              provider: provider.provider,
+              userId: provider.userId,
+              hasAccessToken: !!provider.accessToken,
+              accessTokenLength: provider.accessToken?.length,
+              accessTokenPreview: provider.accessToken?.substring(0, 20) + '...',
+              tokenType: isOAuth2 ? 'OAuth 2.0 Bearer (CORRECT)' : 'OAuth 1.0a (WRONG for API v2!)',
+            });
+            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
             const rawData = await TwitterApiClient.fetchAnalytics(provider.accessToken, subscriptionPlan as any)
             return rawData // TwitterApiClient.fetchAnalytics already returns TwitterAnalytics format
           } catch (error: any) {
@@ -335,26 +353,57 @@ export class AnalyticsDashboardService {
                 retryAfter: error.details?.retryAfter,
                 resetTime: error.details?.resetTime
               })
-              
+
               // Return mock data for rate limited requests to prevent dashboard failure
               const userPlan = await this.getUserPlan(provider.userId || '')
               const subscriptionPlan = userPlan === SubscriptionPlan.PREMIUM_MONTHLY || userPlan === SubscriptionPlan.PREMIUM_YEARLY ? 'PREMIUM' : 'FREEMIUM'
               return TwitterApiClient.generateMockTwitterAnalytics(subscriptionPlan as any)
             }
-            
+
             if (error.type === 'auth_error') {
               // Token might be expired or invalid
-              logger.warn(`Twitter authentication failed for provider ${provider.provider}`, {
+              logger.warn(`Twitter authentication failed for provider ${provider.provider} - attempting token refresh`, {
                 status: error.status,
-                details: error.details
+                details: error.details,
+                providerId: provider.id,
+                hasRefreshToken: !!provider.refreshToken
               })
-              
-              // Mark token as potentially expired (this would need to be implemented in UserService)
-              // await UserService.markTokenAsExpired(provider.id)
-              
-              throw new Error(`Twitter token expired or invalid`)
+
+              // Try to refresh the token if refresh token is available
+              if (provider.refreshToken) {
+                try {
+                  logger.info(`Attempting to refresh Twitter token for provider ${provider.id}`)
+                  const { TokenRefreshService } = await import('@/services/token-refresh')
+                  const refreshResult = await TokenRefreshService.refreshTwitterToken(
+                    provider.userId || '',
+                    provider.id,
+                    provider.refreshToken
+                  )
+
+                  if (refreshResult.refreshed) {
+                    logger.info(`Successfully refreshed Twitter token, retrying analytics fetch`)
+                    // Get updated provider with new token
+                    const updatedProvider = await UserService.getProviderById(provider.id)
+                    if (updatedProvider && updatedProvider.accessToken) {
+                      // Retry the analytics fetch with new token
+                      const userPlan = await this.getUserPlan(provider.userId || '')
+                      const subscriptionPlan = userPlan === SubscriptionPlan.PREMIUM_MONTHLY || userPlan === SubscriptionPlan.PREMIUM_YEARLY ? 'PREMIUM' : 'FREEMIUM'
+                      const rawData = await TwitterApiClient.fetchAnalytics(updatedProvider.accessToken, subscriptionPlan as any)
+                      return rawData
+                    }
+                  } else {
+                    logger.error(`Failed to refresh Twitter token: ${refreshResult.message || refreshResult.error}`)
+                  }
+                } catch (refreshError) {
+                  logger.error(`Exception during Twitter token refresh`, {
+                    error: refreshError instanceof Error ? refreshError.message : String(refreshError)
+                  })
+                }
+              }
+
+              throw new Error(`Twitter token expired or invalid. Please reconnect your Twitter account.`)
             }
-            
+
             throw error; // Re-throw other errors
           }
         }
@@ -369,7 +418,7 @@ export class AnalyticsDashboardService {
                 retryAfter: error.details?.retryAfter,
                 resetTime: error.details?.resetTime
               })
-              
+
               // Return mock data for rate limited requests
               const mockTikTokData: TikTokAnalytics = {
                 profile: {
@@ -410,7 +459,7 @@ export class AnalyticsDashboardService {
               }
               return mockTikTokData
             }
-            
+
             throw error; // Re-throw other errors
           }
         }
@@ -421,8 +470,8 @@ export class AnalyticsDashboardService {
             const subscriptionPlan = userPlan === SubscriptionPlan.PREMIUM_MONTHLY || userPlan === SubscriptionPlan.PREMIUM_YEARLY ? 'PREMIUM' : 'FREEMIUM'
 
             const rawData = await AmazonApiClient.fetchAnalytics(
-              provider.accessToken, 
-              provider.profileId || '', 
+              provider.accessToken,
+              provider.profileId || '',
               subscriptionPlan as any,
               { userId: provider.userId || '', hasAdsAccess: includeAds }
             )
@@ -434,13 +483,13 @@ export class AnalyticsDashboardService {
                 retryAfter: error.details?.retryAfter,
                 resetTime: error.details?.resetTime
               })
-              
+
               // Return mock data for rate limited requests
               const userPlan = await this.getUserPlan(provider.userId || '')
               const subscriptionPlan = userPlan === SubscriptionPlan.PREMIUM_MONTHLY || userPlan === SubscriptionPlan.PREMIUM_YEARLY ? 'PREMIUM' : 'FREEMIUM'
               return AmazonApiClient.generateMockData(subscriptionPlan as any, { userId: provider.userId || '', hasAdsAccess: includeAds })
             }
-            
+
             throw error; // Re-throw other errors
           }
         }
@@ -448,7 +497,7 @@ export class AnalyticsDashboardService {
           throw new Error(`Unsupported platform: ${provider.provider}`)
       }
     } catch (error: any) {
-      logger.error(`Failed to fetch ${provider.provider} analytics`, { 
+      logger.error(`Failed to fetch ${provider.provider} analytics`, {
         error: error.message,
         type: error.type,
         status: error.status,
@@ -459,7 +508,7 @@ export class AnalyticsDashboardService {
   }
 
   private static aggregateAnalyticsOverview(
-    overview: DashboardOverview, 
+    overview: DashboardOverview,
     platformData: FacebookAnalytics | InstagramAnalytics | TwitterAnalytics | TikTokAnalytics | AmazonAnalytics,
     includeAds: boolean
   ) {
@@ -504,11 +553,11 @@ export class AnalyticsDashboardService {
     if (includeAds && overview.totalAdSpend !== undefined) {
       // These would be calculated from individual platform ads data
       // For now, using mock calculations
-      overview.avgCpc = overview.totalAdSpend && overview.totalImpressions > 0 
+      overview.avgCpc = overview.totalAdSpend && overview.totalImpressions > 0
         ? (overview.totalAdSpend / (overview.totalImpressions * 0.025)) // Assuming 2.5% CTR
         : 0
-      
-      overview.avgCtr = overview.totalImpressions > 0 
+
+      overview.avgCtr = overview.totalImpressions > 0
         ? ((overview.totalAdSpend || 0) / (overview.avgCpc || 1)) / overview.totalImpressions * 100
         : 0
     }
@@ -533,10 +582,10 @@ export class DashboardService {
    */
   static async getDashboardData(userId: string) {
     logger.warn("DashboardService.getDashboardData is deprecated, use AnalyticsDashboardService instead")
-    
+
     // For backward compatibility, convert new format to old format
     const analyticsData = await AnalyticsDashboardService.getAnalyticsDashboardData(userId)
-    
+
     return {
       overview: {
         totalReach: analyticsData.overview.totalReach,
@@ -585,8 +634,8 @@ export class DashboardService {
           analytics: {
             impressions: analyticsData.posts.avgImpressions * analyticsData.posts.totalPosts,
             engagements: analyticsData.posts.avgEngagement * analyticsData.posts.totalPosts,
-            engagement_rate: analyticsData.posts.avgEngagement > 0 
-              ? (analyticsData.posts.avgEngagement / (analyticsData.posts.avgImpressions || 1)) * 100 
+            engagement_rate: analyticsData.posts.avgEngagement > 0
+              ? (analyticsData.posts.avgEngagement / (analyticsData.posts.avgImpressions || 1)) * 100
               : 0
           },
           tweets: [] // Would need to reconstruct from analytics data

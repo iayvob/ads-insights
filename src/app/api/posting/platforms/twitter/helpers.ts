@@ -120,10 +120,13 @@ export async function getTwitterConnection(request: NextRequest): Promise<Twitte
         // Determine authentication type based on available tokens
         let authType: 'oauth1' | 'oauth2';
         let accessTokenSecret: string | undefined;
+        let oauth1AccessToken: string | undefined;
 
-        if (authProvider.accessTokenSecret) {
-            // OAuth 1.0a available
+        // Check if OAuth 1.0a is available (required for media uploads)
+        if (authProvider.accessTokenSecret && authProvider.oauth1AccessToken) {
+            // OAuth 1.0a available - use for media uploads
             authType = 'oauth1';
+            oauth1AccessToken = authProvider.oauth1AccessToken; // OAuth 1.0a token from unified flow
             accessTokenSecret = authProvider.accessTokenSecret;
             console.log('🔐 Using OAuth 1.0a authentication for X API (media uploads supported)');
         } else {
@@ -134,17 +137,20 @@ export async function getTwitterConnection(request: NextRequest): Promise<Twitte
 
         // Debug: Log authentication data
         console.log('🔍 Twitter auth provider data:', {
-            hasAccessToken: !!authProvider.accessToken,
+            hasOAuth2AccessToken: !!authProvider.accessToken,
+            hasOAuth1AccessToken: !!authProvider.oauth1AccessToken,
             hasAccessTokenSecret: !!authProvider.accessTokenSecret,
-            accessTokenLength: authProvider.accessToken?.length,
-            accessTokenPreview: authProvider.accessToken?.substring(0, 10) + '...',
+            oauth2TokenLength: authProvider.accessToken?.length,
+            oauth1TokenLength: authProvider.oauth1AccessToken?.length,
+            oauth2TokenPreview: authProvider.accessToken?.substring(0, 10) + '...',
+            oauth1TokenPreview: authProvider.oauth1AccessToken?.substring(0, 10) + '...',
             expiresAt: authProvider.expiresAt,
             providerId: authProvider.providerId,
             authType: authType
         });
 
         return {
-            accessToken: authProvider.accessToken,
+            accessToken: oauth1AccessToken || authProvider.accessToken, // Use OAuth 1.0a token for posting if available
             accessTokenSecret: accessTokenSecret,
             userId: authProvider.providerId || '',
             username: authProvider.username || '',

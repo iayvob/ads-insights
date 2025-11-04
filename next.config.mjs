@@ -33,11 +33,12 @@ const nextConfig = {
       '**/*.spec.*',
     ],
   },
+  // Moved from experimental to root level (Next.js 15.5+)
+  outputFileTracingIncludes: {
+    '/api/**/*': ['./node_modules/@prisma/client/**/*'],
+  },
   experimental: {
-    serverComponentsExternalPackages: ['@prisma/client', 'prisma'],
-    outputFileTracingIncludes: {
-      '/api/**/*': ['./node_modules/@prisma/client/**/*'],
-    },
+    // Empty or add other experimental features
   },
   serverRuntimeConfig: {
     maxDuration: 60,
@@ -92,6 +93,12 @@ const nextConfig = {
     config.resolve.alias['@'] = path.resolve(process.cwd(), 'src');
     config.resolve.fallback = config.resolve.fallback || {};
     config.resolve.fallback['punycode'] = require_.resolve('punycode/');
+
+    // Fix Prisma WASM issue - ignore WASM loading in middleware
+    if (isServer) {
+      config.resolve.alias['./query_engine_bg.js'] = false;
+      config.resolve.alias['./query_engine_bg.wasm'] = false;
+    }
 
     // Exclude unnecessary files from bundle
     config.module = config.module || {};

@@ -3,6 +3,65 @@ import type { LogContext, AnalyticsDetails } from "@/config/logger"
 import { BaseApiClient } from "./base-client"
 import { TwitterAnalytics, PostAnalytics, TwitterPostAnalytics, AdsAnalytics, TwitterAdsAnalytics } from "@/validations/analytics-types"
 import { SubscriptionPlan } from "@prisma/client"
+import crypto from 'crypto'
+
+// 🔑 Helper function to generate consistent, unique cache keys
+function generateCacheKey(accessToken: string): string {
+  const hash = crypto.createHash('sha256').update(accessToken).digest('hex')
+  return `twitter_analytics_${hash.substring(0, 16)}`
+}
+
+// 💾 Simple in-memory cache to prevent hitting rate limits
+interface CacheEntry<T> {
+  data: T
+  timestamp: number
+  expiresAt: number
+}
+
+class TwitterApiCache {
+  private static cache = new Map<string, CacheEntry<any>>()
+  private static readonly DEFAULT_TTL = 15 * 60 * 1000 // 15 minutes
+
+  static set<T>(key: string, data: T, ttl: number = this.DEFAULT_TTL): void {
+    const now = Date.now()
+    this.cache.set(key, {
+      data,
+      timestamp: now,
+      expiresAt: now + ttl
+    })
+  }
+
+  static get<T>(key: string): T | null {
+    const entry = this.cache.get(key)
+    if (!entry) return null
+
+    // Return data even if expired (for rate limit fallback)
+    // But mark it as expired in getCacheInfo
+    return entry.data as T
+  }
+
+  static has(key: string): boolean {
+    const entry = this.cache.get(key)
+    if (!entry) return false
+    return Date.now() < entry.expiresAt
+  }
+
+  static getCacheInfo(key: string): { age: number; ttl: number; expired: boolean } | null {
+    const entry = this.cache.get(key)
+    if (!entry) return null
+
+    const now = Date.now()
+    const age = now - entry.timestamp
+    const ttl = Math.max(0, entry.expiresAt - now)
+    const expired = now >= entry.expiresAt
+
+    return { age, ttl, expired }
+  }
+
+  static clear(): void {
+    this.cache.clear()
+  }
+}
 
 export interface TwitterData {
   profile: {

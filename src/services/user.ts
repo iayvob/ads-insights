@@ -701,8 +701,8 @@ export class UserService {
   }
 
   /**
-   * Update both OAuth 1.0a accessToken and accessTokenSecret
-   * Used in unified flow to replace OAuth 2.0 tokens with OAuth 1.0a tokens for media upload support
+   * Update OAuth 1.0a tokens WITHOUT overwriting OAuth 2.0 Bearer token
+   * Used in unified flow to ADD OAuth 1.0a support alongside existing OAuth 2.0
    */
   static async updateAuthProviderOAuth1Tokens(
     authProviderId: string,
@@ -712,20 +712,22 @@ export class UserService {
       const provider = await prisma.authProvider.update({
         where: { id: authProviderId },
         data: {
-          accessToken: data.accessToken, // OAuth 1.0a access token
+          oauth1AccessToken: data.accessToken, // Store OAuth 1.0a token in separate field
           accessTokenSecret: data.accessTokenSecret, // OAuth 1.0a access secret
-          expiresAt: null, // OAuth 1.0a tokens don't expire
+          // DO NOT touch accessToken (OAuth 2.0 Bearer token) - it's needed for Twitter API v2
+          // DO NOT touch expiresAt - OAuth 2.0 expiration still applies
           updatedAt: new Date()
         }
       });
 
-      logger.info("Provider OAuth 1.0a tokens updated", {
+      logger.info("Provider OAuth 1.0a tokens updated (preserving OAuth 2.0)", {
         authProviderId,
         provider: provider.provider,
-        oauth1AccessToken: provider.accessToken?.substring(0, 20) + '...',
-        accessTokenLength: provider.accessToken?.length,
+        oauth1AccessToken: provider.oauth1AccessToken?.substring(0, 20) + '...',
+        oauth1TokenLength: provider.oauth1AccessToken?.length,
         hasAccessSecret: !!provider.accessTokenSecret,
         accessSecretLength: provider.accessTokenSecret?.length,
+        hasOAuth2Token: !!provider.accessToken,
         hasRefreshToken: !!provider.refreshToken
       });
 

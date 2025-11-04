@@ -1,5 +1,6 @@
 'use client';
 
+import React from 'react';
 import {
   Card,
   CardContent,
@@ -53,6 +54,20 @@ interface OverviewMetricsProps {
 }
 
 export function OverviewMetrics({ data }: OverviewMetricsProps) {
+  // 🔍 DEBUG: Log incoming overview data
+  React.useEffect(() => {
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('📊 OVERVIEW METRICS - DATA RECEIVED');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('📈 Overview Data:', data?.overview);
+    console.log('🔗 Connected Platforms:', data?.connectedPlatforms);
+    console.log('🐦 Twitter Data:', data?.twitter);
+    console.log('📘 Facebook Data:', data?.facebook);
+    console.log('📷 Instagram Data:', data?.instagram);
+    console.log('🔍 Full Data:', JSON.stringify(data, null, 2));
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+  }, [data]);
+
   // Handle null or undefined data
   if (!data) {
     console.warn('No overview metrics data available');
@@ -120,6 +135,7 @@ export function OverviewMetrics({ data }: OverviewMetricsProps) {
     };
   });
 
+  // ⚠️ HARDCODED DATA - TODO: Replace with real API data
   // Generate trend data with safety checks
   const engagementTrend = [
     {
@@ -149,12 +165,17 @@ export function OverviewMetrics({ data }: OverviewMetricsProps) {
     { date: 'Sun', engagement: overview?.totalEngagement || 0 },
   ];
 
+  console.warn('⚠️ Using calculated engagement trend - not real API data');
+
+  // ⚠️ HARDCODED DATA - TODO: Replace with real audience demographics from API
   const audienceData = [
     { name: '18-24', value: 25, color: '#3b82f6' },
     { name: '25-34', value: 35, color: '#8b5cf6' },
     { name: '35-44', value: 25, color: '#06b6d4' },
     { name: '45+', value: 15, color: '#10b981' },
   ];
+
+  console.warn('⚠️ Using hardcoded audience data - not real API data');
 
   return (
     <div className="space-y-6">

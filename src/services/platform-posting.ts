@@ -153,20 +153,23 @@ export class PlatformPostingService {
           // Determine authentication type based on available tokens
           let authType: 'oauth1' | 'oauth2' = 'oauth2';
           let accessTokenSecret: string | undefined;
+          let oauth1AccessToken: string | undefined;
 
-          if (authProvider.accessTokenSecret) {
-            // OAuth 1.0a available (has access token secret)
+          // Check if OAuth 1.0a is available (required for media uploads)
+          if (authProvider.accessTokenSecret && authProvider.oauth1AccessToken) {
+            // OAuth 1.0a available - use for posting with media uploads
             authType = 'oauth1';
+            oauth1AccessToken = authProvider.oauth1AccessToken;
             accessTokenSecret = authProvider.accessTokenSecret;
           }
 
-          console.log(`🔍 Twitter connection setup - authProvider found: ${!!authProvider}, accessTokenSecret: ${!!authProvider.accessTokenSecret}, authType: ${authType}`);
+          console.log(`🔍 Twitter connection setup - authProvider found: ${!!authProvider}, oauth1AccessToken: ${!!authProvider.oauth1AccessToken}, accessTokenSecret: ${!!authProvider.accessTokenSecret}, authType: ${authType}`);
           console.log(`🔍 Using database authProvider data for connection`);
 
           connections.push({
             platform: "twitter",
             connected: true,
-            accessToken: authProvider.accessToken,
+            accessToken: oauth1AccessToken || authProvider.accessToken, // Use OAuth 1.0a token for posting if available
             refreshToken: authProvider.refreshToken || undefined,
             expiresAt: authProvider.expiresAt ? new Date(authProvider.expiresAt) : new Date(twitter.account_tokens.expires_at),
             username: authProvider.username || twitter.account.username,

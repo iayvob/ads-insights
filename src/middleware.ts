@@ -23,7 +23,7 @@ export async function middleware(request: NextRequest) {
     '/api/auth/reset-password',
     '/api/auth/verify-email',
     '/api/auth/facebook',
-    '/api/auth/instagram', 
+    '/api/auth/instagram',
     '/api/auth/twitter',
     '/api/auth/tiktok',
     '/api/auth/amazon'
@@ -74,19 +74,19 @@ export async function middleware(request: NextRequest) {
 
     // Additional validation for premium features
     const userPlan = session?.plan || 'FREEMIUM';
-    
+
     // Check platform-specific API access
     if (pathname.includes('/api/dashboard/')) {
       const platform = pathname.split('/api/dashboard/')[1]?.split('/')[0];
-      
+
       if (platform && ['facebook', 'twitter', 'tiktok', 'amazon'].includes(platform)) {
         if (userPlan === 'FREEMIUM') {
           return NextResponse.json(
-            { 
-              error: "Premium subscription required", 
+            {
+              error: "Premium subscription required",
               platform,
               userPlan,
-              upgradeRequired: true 
+              upgradeRequired: true
             },
             { status: 403 }
           );
@@ -97,15 +97,15 @@ export async function middleware(request: NextRequest) {
     // Check posting API access for restricted platforms
     if (pathname.includes('/api/posting/platforms/')) {
       const platform = pathname.split('/api/posting/platforms/')[1]?.split('/')[0];
-      
+
       if (platform && ['facebook', 'twitter'].includes(platform)) {
         if (userPlan === 'FREEMIUM') {
           return NextResponse.json(
-            { 
-              error: "Premium subscription required for posting to this platform", 
+            {
+              error: "Premium subscription required for posting to this platform",
               platform,
               userPlan,
-              upgradeRequired: true 
+              upgradeRequired: true
             },
             { status: 403 }
           );

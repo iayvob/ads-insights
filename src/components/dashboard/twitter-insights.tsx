@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
+import { useState } from 'react';
+import React from 'react';
 import {
   Card,
   CardContent,
@@ -144,6 +145,62 @@ export function TwitterInsights({
   // Get user plan from session
   const userPlan = session?.user?.plan || 'FREEMIUM';
 
+  // 🔍 DEBUG: Log incoming Twitter data
+  React.useEffect(() => {
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('🐦 TWITTER INSIGHTS - DATA RECEIVED');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('📊 Data Status:', {
+      hasData: !!data,
+      isLoading,
+      hasError: !!error,
+      errorMessage: error?.message,
+    });
+
+    if (data) {
+      console.log('\n📈 TWITTER PROFILE DATA:');
+      console.log('   Profile:', data.profile);
+      console.log('   Followers:', data.profile?.followers_count);
+      console.log('   Last Updated:', data.lastUpdated);
+
+      console.log('\n📝 POSTS DATA:');
+      console.log('   Total Posts:', data.posts?.totalPosts);
+      console.log('   Avg Engagement:', data.posts?.avgEngagement);
+      console.log('   Avg Reach:', data.posts?.avgReach);
+      console.log(
+        '   Engagement Trend:',
+        data.posts?.engagementTrend?.length,
+        'data points'
+      );
+      console.log('   Top Tweet:', data.posts?.topTweet);
+
+      console.log('\n💰 ADS DATA:');
+      console.log('   Has Ads Data:', !!data.ads);
+      console.log('   User Plan:', userPlan);
+      console.log('   Has Ads Access:', featureAccess.adsAnalytics);
+
+      if (data.ads) {
+        const twitterAds = isTwitterAdsAnalytics(data.ads) ? data.ads : null;
+        console.log('   Total Spend:', twitterAds?.totalSpend);
+        console.log('   Total Reach:', twitterAds?.totalReach);
+        console.log('   Total Clicks:', twitterAds?.totalClicks);
+        console.log('   CTR:', twitterAds?.ctr);
+        console.log(
+          '   Twitter Specific Metrics:',
+          twitterAds?.twitterSpecificMetrics
+        );
+        console.log(
+          '   Promoted Tweets:',
+          twitterAds?.promotedTweetPerformance?.length
+        );
+      }
+
+      console.log('\n🔍 FULL DATA OBJECT:');
+      console.log(JSON.stringify(data, null, 2));
+    }
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+  }, [data, isLoading, error, userPlan]);
+
   // Get feature access based on plan
   const featureAccess = getFeatureAccess(userPlan as SubscriptionPlan);
 
@@ -196,6 +253,10 @@ export function TwitterInsights({
   }
 
   if (error) {
+    const isAuthError =
+      error?.message?.includes('token') ||
+      error?.message?.includes('Authentication');
+
     return (
       <Card className="bg-white/80 backdrop-blur-sm border border-gray-100 shadow-md">
         <CardHeader>
@@ -219,7 +280,30 @@ export function TwitterInsights({
                 'An error occurred while fetching Twitter data.'}
             </AlertDescription>
           </Alert>
-          <Button className="mt-2" variant="outline">
+          {isAuthError && (
+            <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+              <p className="text-sm text-yellow-800 mb-2">
+                <strong>Authentication Issue Detected</strong>
+              </p>
+              <p className="text-xs text-yellow-700 mb-3">
+                Your Twitter connection may have expired. Please reconnect your
+                Twitter account in the Profile → Connections section.
+              </p>
+              <Button
+                className="bg-blue-500 hover:bg-blue-600 text-white text-xs"
+                onClick={() =>
+                  (window.location.href = '/profile?tab=connections')
+                }
+              >
+                Go to Connections
+              </Button>
+            </div>
+          )}
+          <Button
+            className="mt-4"
+            variant="outline"
+            onClick={() => window.location.reload()}
+          >
             <RefreshCcw className="mr-2 h-4 w-4" />
             Retry
           </Button>
