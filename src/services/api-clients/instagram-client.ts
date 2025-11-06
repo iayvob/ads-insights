@@ -67,33 +67,24 @@ export interface InstagramEnhancedData {
 export class InstagramApiClient extends BaseApiClient {
   private static readonly BASE_URL = "https://graph.facebook.com/v23.0"
 
-  // Comprehensive Instagram insights fields for Facebook Graph API
-  private static readonly INSTAGRAM_INSIGHTS_FIELDS = [
-    'engagement',         // Total engagement
-    'impressions',        // Total impressions
-    'reach',             // Total reach
-    'saved',             // Post saves count
-    'profile_views',     // Profile visits from this post
-    'website_clicks',    // Website clicks from profile
-    'email_contacts',    // Email contacts from profile
-    'phone_call_clicks', // Phone call clicks from profile
-    'text_message_clicks', // Text message clicks from profile
-    'get_directions_clicks', // Get directions clicks from profile
-    'likes',             // Total likes
-    'comments',          // Total comments
-    'shares',            // Total shares
-    'follows',           // New followers from this post
-    'profile_activity',  // Profile activity
-    'video_views',       // Video views (for video posts)
-    'video_view_time',   // Total video view time
-    'story_exits',       // Story exits (for story posts)
-    'story_replies',     // Story replies (for story posts)
-    'story_taps_forward', // Story forward taps
-    'story_taps_back',   // Story back taps
-    'story_completion'   // Story completion rate
-  ].join(',')
+  /**
+   * Valid Instagram Media Insights per media type (Instagram Graph API v23.0)
+   * @see https://developers.facebook.com/docs/instagram-api/reference/ig-media/insights
+   */
 
-  // Media fields for comprehensive post analysis
+  // IMAGE and CAROUSEL_ALBUM insights (4 metrics)
+  private static readonly IMAGE_CAROUSEL_INSIGHTS = 'engagement,impressions,reach,saved'
+
+  // VIDEO and REELS insights (6 metrics)
+  private static readonly VIDEO_REEL_INSIGHTS = 'engagement,impressions,reach,saved,video_views,total_interactions'
+
+  // STORY insights (6 metrics)
+  private static readonly STORY_INSIGHTS = 'exits,impressions,reach,replies,taps_forward,taps_back'
+
+  /**
+   * Media fields for basic post data (fetch insights separately per media type)
+   * Insights removed from here - use getMediaInsights() method instead
+   */
   private static readonly MEDIA_FIELDS = [
     'id',
     'media_type',
@@ -106,74 +97,99 @@ export class InstagramApiClient extends BaseApiClient {
     'is_comment_enabled',
     'media_product_type',
     'thumbnail_url',
-    'children{id,media_type,media_url,timestamp}',
-    `insights.metric(${this.INSTAGRAM_INSIGHTS_FIELDS})`
+    'children{id,media_type,media_url,timestamp}'
   ].join(',')
 
-  // Account-level insights for Instagram Business
-  private static readonly ACCOUNT_INSIGHTS_FIELDS = [
-    'audience_city',
-    'audience_country',
-    'audience_gender_age',
-    'audience_locale',
-    'online_followers',
-    'profile_views',
-    'website_clicks',
-    'follower_count',
-    'get_directions_clicks',
-    'phone_call_clicks',
-    'text_message_clicks',
-    'email_contacts'
-  ].join(',')
+  /**
+   * Account insights split by period type (Instagram Graph API v23.0)
+   * Lifetime metrics: audience demographics (only support period=lifetime)
+   * Period metrics: profile views, clicks, follower count (support period=day)
+   */
+  private static readonly ACCOUNT_INSIGHTS_LIFETIME = 'audience_city,audience_country,audience_gender_age,audience_locale,online_followers'
+  private static readonly ACCOUNT_INSIGHTS_PERIOD = 'profile_views,website_clicks,follower_count,email_contacts,phone_call_clicks,text_message_clicks,get_directions_clicks'
 
   /**
    * Fetch comprehensive Instagram analytics with Instagram Business API
    * Enhanced with Facebook Graph API v23.0 for Instagram Business accounts
+   * @param accessToken - Instagram access token
+   * @param includeAds - Whether to include ads analytics (premium feature)
+   * @param fallbackProfileData - Optional fallback profile data from database (used when profile API fails)
    */
-  static async fetchAnalytics(accessToken: string, includeAds: boolean = false): Promise<InstagramEnhancedData> {
+  static async fetchAnalytics(
+    accessToken: string,
+    includeAds: boolean = false,
+    fallbackProfileData?: {
+      username?: string
+      followers_count?: number
+      media_count?: number
+      biography?: string
+      website?: string
+      profile_picture_url?: string
+    }
+  ): Promise<InstagramEnhancedData> {
     try {
-      logger.analytics("Starting Instagram analytics fetch", {
+      logger.analytics("🚀 Starting Instagram analytics fetch", {
         platform: 'instagram',
         dataType: 'posts',
         success: false
       }, { operation: 'fetch_analytics' }, ['instagram', 'analytics'])
 
+      // Validate token has required permissions
+      const scopeValidation = await this.validateTokenScopes(accessToken)
+
+      if (!scopeValidation.valid) {
+        throw new Error(scopeValidation.message || 'Invalid token permissions')
+      }
+
       // Get Instagram Business Account
       const igBusinessAccount = await this.getInstagramBusinessAccount(accessToken)
 
       if (!igBusinessAccount) {
-        console.error("No Instagram Business account found")
         logger.error("No Instagram Business account found")
         throw new Error("No Instagram Business account linked to this Facebook account")
       }
 
       const { igUserId, pageAccessToken } = igBusinessAccount
-
-      const [profileData, postsAnalytics, accountInsights] = await Promise.allSettled([
-        this.getEnhancedProfileData(igUserId, pageAccessToken),
+      const [profileData, postsAnalytics, accountInsights, storiesAnalytics] = await Promise.allSettled([
+        this.getEnhancedProfileData(igUserId, pageAccessToken, fallbackProfileData),
         this.getComprehensivePostsAnalytics(igUserId, pageAccessToken),
-        this.getAccountInsights(igUserId, pageAccessToken)
+        this.getAccountInsights(igUserId, pageAccessToken),
+        this.getStoriesAnalytics(igUserId, pageAccessToken)
       ])
 
-      // Get ads analytics if premium subscription
+      // Get ads analytics if premium subscription (optional - don't fail entire request if ads unavailable)
       let adsAnalytics: InstagramAdsAnalytics | null = null
       if (includeAds) {
-        adsAnalytics = await this.getInstagramAdsAnalytics(accessToken)
+        try {
+          adsAnalytics = await this.getInstagramAdsAnalytics(accessToken)
+        } catch (adsError) {
+          // Ads analytics are optional - log the error but don't fail the entire request
+          logger.warn('Instagram ads analytics unavailable - continuing without ads data', {
+            error: adsError instanceof Error ? adsError.message : 'Unknown error',
+            reason: 'No active ad accounts or missing permissions'
+          })
+          adsAnalytics = null
+        }
       }
 
       const result: InstagramEnhancedData = {
         profile: profileData.status === "fulfilled" ? profileData.value : {
-          id: "unknown",
-          username: "unknown",
-          followers_count: 0,
-          media_count: 0,
-          biography: "",
-          website: "",
-          profile_picture_url: "",
-          follows_count: 0,
-          account_type: "PERSONAL"
+          // Use fallback data from database if profile API failed
+          id: igUserId || "unknown",
+          username: fallbackProfileData?.username || "unknown",
+          followers_count: fallbackProfileData?.followers_count || 0,
+          media_count: fallbackProfileData?.media_count || 0,
+          biography: fallbackProfileData?.biography || "",
+          website: fallbackProfileData?.website || "",
+          profile_picture_url: fallbackProfileData?.profile_picture_url || "",
+          follows_count: 0, // Not available in fallback
+          account_type: "BUSINESS" // Instagram Business accounts are always BUSINESS
         },
-        posts: postsAnalytics.status === "fulfilled" ? postsAnalytics.value : {
+        posts: postsAnalytics.status === "fulfilled" ? {
+          ...postsAnalytics.value,
+          // Add stories metrics if available
+          storyMetrics: storiesAnalytics.status === "fulfilled" ? storiesAnalytics.value : undefined
+        } : {
           totalPosts: 0,
           avgEngagement: 0,
           avgReach: 0,
@@ -181,32 +197,34 @@ export class InstagramApiClient extends BaseApiClient {
           totalReach: 0,
           totalImpressions: 0,
           totalEngagements: 0,
-          engagementRate: 0
-        } as InstagramPostAnalytics,
+          engagementRate: 0,
+          storyMetrics: undefined
+        } as unknown as InstagramPostAnalytics,
         ads: adsAnalytics,
         lastUpdated: new Date().toISOString(),
       }
 
       // Log errors for failed data fetching
       if (profileData.status === "rejected") {
-        console.error("Failed to fetch Instagram profile data:", profileData.reason)
         logger.error("Failed to fetch Instagram profile data", { error: profileData.reason })
       }
       if (postsAnalytics.status === "rejected") {
-        console.error("Failed to fetch Instagram posts analytics:", postsAnalytics.reason)
         logger.error("Failed to fetch Instagram posts analytics", { error: postsAnalytics.reason })
+      }
+      if (storiesAnalytics.status === "rejected") {
+        logger.warn("Failed to fetch Instagram stories analytics", { error: storiesAnalytics.reason })
       }
 
       logger.info("Instagram analytics fetched successfully", {
         hasProfileData: !!result.profile,
         hasPostsData: !!result.posts,
         hasAdsData: !!result.ads,
+        hasStoriesData: !!(result.posts as any).storyMetrics,
       })
 
       return result
 
     } catch (error) {
-      console.error("Instagram analytics fetch failed:", error)
       logger.analytics("Instagram analytics fetch failed", {
         platform: 'instagram',
         dataType: 'posts',
@@ -267,15 +285,18 @@ export class InstagramApiClient extends BaseApiClient {
       // Get Instagram Business Account
       const igBusinessAccount = await this.getInstagramBusinessAccount(accessToken)
       if (!igBusinessAccount) {
-        return this.getMockInstagramPostsAnalytics()
+        throw new Error('No Instagram Business account found. Please ensure your Facebook account is linked to an Instagram Business account.')
       }
 
       const { igUserId, pageAccessToken } = igBusinessAccount
       return await this.getComprehensivePostsAnalytics(igUserId, pageAccessToken)
 
     } catch (error) {
-      logger.error("Failed to fetch Instagram posts analytics", { error })
-      return this.getMockInstagramPostsAnalytics()
+      logger.error("Failed to fetch Instagram posts analytics", {
+        error: error instanceof Error ? error.message : error,
+        stack: error instanceof Error ? error.stack : undefined
+      })
+      throw new Error(`Instagram API: Failed to fetch posts analytics. ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 
@@ -289,8 +310,11 @@ export class InstagramApiClient extends BaseApiClient {
       const enhancedAds = await this.getInstagramAdsAnalytics(accessToken)
       return enhancedAds
     } catch (error) {
-      logger.error("Failed to fetch Instagram ads analytics", { error })
-      return this.getMockInstagramAdsAnalytics()
+      logger.error("Failed to fetch Instagram ads analytics", {
+        error: error instanceof Error ? error.message : error,
+        stack: error instanceof Error ? error.stack : undefined
+      })
+      throw new Error(`Instagram API: Failed to fetch ads analytics. ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 
@@ -306,13 +330,14 @@ export class InstagramApiClient extends BaseApiClient {
       const igBusinessData = await this.getInstagramBusinessAndAdAccounts(accessToken)
 
       if (!igBusinessData || !igBusinessData.adAccounts.length) {
-        logger.warn("No Instagram Business account or ad accounts found, using mock data")
-        return this.getMockInstagramAdsAnalytics()
+        logger.warn("No Instagram Business account or ad accounts found")
+        // Return empty state instead of throwing error - user has no ad accounts
+        return this.getEmptyAdsAnalytics('No ad accounts found. Connect an ad account to see ads insights.')
       }
 
       const { igUserId, pageAccessToken, adAccounts } = igBusinessData
 
-      // Fetch comprehensive ads data from all linked ad accounts
+      // Fetch comprehensive ads data from all linked ad accounts (including historical)
       const adsPromises = adAccounts.map((adAccount: any) =>
         this.fetchInstagramAdAccountInsights(pageAccessToken, adAccount.id)
       )
@@ -323,16 +348,32 @@ export class InstagramApiClient extends BaseApiClient {
         .map(result => (result as PromiseFulfilledResult<any>).value)
 
       if (successfulResults.length === 0) {
-        logger.warn("No successful ads data retrieved, using mock data")
-        return this.getMockInstagramAdsAnalytics()
+        logger.warn("No successful ads data retrieved from any ad account")
+        // Return empty state instead of throwing - user has accounts but no ads or no permissions
+        return this.getEmptyAdsAnalytics('No ads data available. You may not have run any Instagram ad campaigns yet.')
+      }
+
+      // Check if we actually got any ads data
+      const totalAds = successfulResults.reduce((sum, result) => sum + (result.insights?.length || 0), 0)
+
+      if (totalAds === 0) {
+        logger.info("No Instagram ads found in any ad account")
+        // Return empty state - user has accounts but never ran Instagram ads
+        return this.getEmptyAdsAnalytics('You have 0 ads on this account. Create your first Instagram ad campaign to see insights here.')
       }
 
       // Aggregate data from all ad accounts
       return this.aggregateInstagramAdsData(successfulResults)
 
     } catch (error) {
-      logger.error("Failed to fetch Instagram ads analytics", { error })
-      return this.getMockInstagramAdsAnalytics()
+      logger.error("Failed to fetch Instagram ads analytics", {
+        error: error instanceof Error ? error.message : error,
+        stack: error instanceof Error ? error.stack : undefined
+      })
+      // Return empty state with error message instead of throwing
+      return this.getEmptyAdsAnalytics(
+        error instanceof Error ? error.message : 'Failed to fetch ads data. Please check your permissions.'
+      )
     }
   }
 
@@ -363,6 +404,79 @@ export class InstagramApiClient extends BaseApiClient {
     } catch (error) {
       logger.error("Failed to get Instagram Business account", { error })
       return null
+    }
+  }
+
+  /**
+   * Validate that access token has required Instagram permissions
+   * For Facebook Login: Uses Page permissions and tasks
+   * For Instagram Login: Uses instagram_basic and instagram_manage_insights
+   */
+  private static async validateTokenScopes(accessToken: string): Promise<{
+    valid: boolean
+    missingScopes: string[]
+    message?: string
+  }> {
+    try {
+      // Check if user has pages with Instagram accounts and required tasks
+      const pagesResponse = await fetch(
+        `${this.BASE_URL}/me/accounts?fields=instagram_business_account,tasks,access_token&access_token=${accessToken}`
+      )
+
+      if (!pagesResponse.ok) {
+        logger.warn('Unable to fetch pages for token validation', { status: pagesResponse.status })
+        // Don't block - allow the request to proceed and fail later with more specific error
+        return {
+          valid: true,
+          missingScopes: []
+        }
+      }
+
+      const pagesData = await pagesResponse.json()
+      const pageWithInstagram = pagesData.data?.find((page: any) => page.instagram_business_account)
+
+      if (!pageWithInstagram) {
+        return {
+          valid: false,
+          missingScopes: ['instagram_business_account'],
+          message: 'No Facebook Page with Instagram Business Account found. Please connect your Instagram Business Account to a Facebook Page.'
+        }
+      }
+
+      const tasks = pageWithInstagram.tasks || []
+
+      // For Facebook Login flow, the "ANALYZE" task on the page grants access to insights
+      // Reference: https://developers.facebook.com/docs/instagram-platform/instagram-api-with-facebook-login
+      if (!tasks.includes('ANALYZE')) {
+        logger.warn('Page missing ANALYZE task for Instagram insights', {
+          availableTasks: tasks,
+          pageId: pageWithInstagram.id
+        })
+
+        return {
+          valid: false,
+          missingScopes: ['ANALYZE task on Facebook Page'],
+          message: 'Your Facebook Page role does not have permission to view Instagram insights. You need admin-equivalent permissions on the Facebook Page linked to your Instagram account.'
+        }
+      }
+
+      logger.info('Token validation successful', {
+        pageId: pageWithInstagram.id,
+        tasks: tasks,
+        hasAnalyzeAccess: true
+      })
+
+      return {
+        valid: true,
+        missingScopes: []
+      }
+    } catch (error) {
+      logger.error('Error validating token scopes', { error })
+      // Don't block on validation errors - let the actual API call fail with proper error
+      return {
+        valid: true,
+        missingScopes: []
+      }
     }
   }
 
@@ -404,11 +518,18 @@ export class InstagramApiClient extends BaseApiClient {
 
   /**
    * Fetch Instagram-specific ad insights from an ad account
+   * Fetches historical data (last 90 days) and includes all campaign statuses
    */
   private static async fetchInstagramAdAccountInsights(pageAccessToken: string, adAccountId: string) {
     try {
       // Instagram-specific ads insights fields following Meta Graph API v23.0
       const insightsFields = [
+        'ad_id',
+        'ad_name',
+        'adset_id',
+        'adset_name',
+        'campaign_id',
+        'campaign_name',
         'impressions',
         'reach',
         'clicks',
@@ -433,13 +554,30 @@ export class InstagramApiClient extends BaseApiClient {
         'conversion_rate_ranking'
       ].join(',')
 
+      // Calculate date range for last 90 days to include historical data
+      const endDate = new Date()
+      const startDate = new Date()
+      startDate.setDate(startDate.getDate() - 90) // Last 90 days of data
+
+      const timeRange = {
+        since: startDate.toISOString().split('T')[0],
+        until: endDate.toISOString().split('T')[0]
+      }
+
+      logger.info(`Fetching Instagram ads insights for account ${adAccountId}`, {
+        dateRange: timeRange,
+        note: 'Fetching last 90 days including all campaign statuses (active, paused, archived)'
+      })
+
       // Fetch ad insights filtered for Instagram placements
+      // NOTE: Meta's Insights API supports retrieving historical data for up to 37 months
+      // We're using 90 days to balance completeness with API performance
       const insightsResponse = await fetch(
         `${this.BASE_URL}/act_${adAccountId}/insights?` + new URLSearchParams({
           access_token: pageAccessToken,
           fields: insightsFields,
           level: 'ad',
-          date_preset: 'last_7d',
+          time_range: JSON.stringify(timeRange), // Historical data (last 90 days)
           breakdowns: 'publisher_platform,platform_position,impression_device',
           filtering: JSON.stringify([
             { field: 'publisher_platform', operator: 'IN', value: ['instagram'] }
@@ -449,10 +587,17 @@ export class InstagramApiClient extends BaseApiClient {
       )
 
       if (!insightsResponse.ok) {
+        const errorText = await insightsResponse.text()
+        logger.warn(`Failed to fetch ad insights for account ${adAccountId}`, {
+          status: insightsResponse.status,
+          error: errorText
+        })
         throw new Error(`Failed to fetch ad insights: ${insightsResponse.status}`)
       }
 
       const insightsData = await insightsResponse.json()
+
+      logger.info(`Retrieved ${insightsData.data?.length || 0} Instagram ad insights for account ${adAccountId}`)
 
       // Fetch creative insights
       const creativesResponse = await fetch(
@@ -468,15 +613,19 @@ export class InstagramApiClient extends BaseApiClient {
       return {
         adAccountId,
         insights: insightsData.data || [],
-        creatives: creativesData.data || []
+        creatives: creativesData.data || [],
+        paging: insightsData.paging || null
       }
 
     } catch (error) {
-      logger.error(`Failed to fetch Instagram ad insights for account ${adAccountId}`, { error })
+      logger.error(`Failed to fetch Instagram ad insights for account ${adAccountId}`, {
+        error: error instanceof Error ? error.message : error
+      })
       return {
         adAccountId,
         insights: [],
-        creatives: []
+        creatives: [],
+        paging: null
       }
     }
   }
@@ -844,14 +993,68 @@ export class InstagramApiClient extends BaseApiClient {
   /**
    * Get enhanced profile data using Facebook Graph API
    */
-  private static async getEnhancedProfileData(igUserId: string, pageAccessToken: string) {
+  private static async getEnhancedProfileData(
+    igUserId: string,
+    pageAccessToken: string,
+    fallbackProfileData?: {
+      username?: string
+      followers_count?: number
+      media_count?: number
+      biography?: string
+      website?: string
+      profile_picture_url?: string
+    }
+  ) {
     try {
+      // NOTE: 'account_type' field removed - causes (#100) error with Standard Access
+      // account_type is not available on IGUser node type for apps in Standard Access
       const response = await fetch(
-        `${this.BASE_URL}/${igUserId}?access_token=${pageAccessToken}&fields=id,username,followers_count,media_count,biography,website,profile_picture_url,account_type`
+        `${this.BASE_URL}/${igUserId}?access_token=${pageAccessToken}&fields=id,username,followers_count,media_count,biography,website,profile_picture_url`
       )
 
       if (!response.ok) {
-        throw new Error("Failed to fetch Instagram profile data")
+        const errorData = await response.json().catch(() => ({ error: { message: 'Unknown error' } }))
+        const errorMessage = errorData.error?.message || 'Unknown error'
+
+        // Check for permission error (#10) - profile fetch also requires Advanced Access
+        if (errorData.error?.code === 10 || errorMessage.includes('does not have permission')) {
+          logger.warn('Instagram profile fetch requires Advanced Access - using fallback profile data', {
+            igUserId,
+            errorCode: errorData.error?.code,
+            errorMessage,
+            hasFallback: !!fallbackProfileData
+          })
+
+          // Use fallback data from database if available
+          if (fallbackProfileData) {
+            return {
+              id: igUserId,
+              username: fallbackProfileData.username || 'unknown',
+              followers_count: fallbackProfileData.followers_count || 0,
+              media_count: fallbackProfileData.media_count || 0,
+              biography: fallbackProfileData.biography || '',
+              website: fallbackProfileData.website || '',
+              profile_picture_url: fallbackProfileData.profile_picture_url || '',
+              account_type: 'BUSINESS',
+              follows_count: 0
+            }
+          }
+
+          // No fallback available - return minimal data
+          return {
+            id: igUserId,
+            username: 'unknown',
+            followers_count: 0,
+            media_count: 0,
+            biography: '',
+            website: '',
+            profile_picture_url: '',
+            account_type: 'BUSINESS',
+            follows_count: 0
+          }
+        }
+
+        throw new Error(`Failed to fetch Instagram profile data: ${errorMessage}`)
       }
 
       const data = await response.json()
@@ -867,8 +1070,39 @@ export class InstagramApiClient extends BaseApiClient {
         follows_count: 0 // Not available in Instagram Business API
       }
     } catch (error) {
-      logger.error("Failed to fetch Instagram profile data", { error })
-      return this.getMockProfileData()
+      logger.error("Failed to fetch Instagram profile data", {
+        error: error instanceof Error ? error.message : error,
+        stack: error instanceof Error ? error.stack : undefined,
+        hasFallback: !!fallbackProfileData
+      })
+
+      // Use fallback data from database if available
+      if (fallbackProfileData) {
+        return {
+          id: igUserId,
+          username: fallbackProfileData.username || 'unknown',
+          followers_count: fallbackProfileData.followers_count || 0,
+          media_count: fallbackProfileData.media_count || 0,
+          biography: fallbackProfileData.biography || '',
+          website: fallbackProfileData.website || '',
+          profile_picture_url: fallbackProfileData.profile_picture_url || '',
+          account_type: 'BUSINESS',
+          follows_count: 0
+        }
+      }
+
+      // Don't throw - return minimal data so request doesn't fail
+      return {
+        id: igUserId,
+        username: 'unknown',
+        followers_count: 0,
+        media_count: 0,
+        biography: '',
+        website: '',
+        profile_picture_url: '',
+        account_type: 'BUSINESS',
+        follows_count: 0
+      }
     }
   }
 
@@ -877,55 +1111,281 @@ export class InstagramApiClient extends BaseApiClient {
    */
   private static async getComprehensivePostsAnalytics(igUserId: string, pageAccessToken: string): Promise<InstagramPostAnalytics> {
     try {
-      // Get recent media with insights
-      const mediaResponse = await fetch(
-        `${this.BASE_URL}/${igUserId}/media?access_token=${pageAccessToken}&fields=${this.MEDIA_FIELDS}&limit=50`
-      )
+      // Fetch media with pagination support (up to 100 posts)
+      const MAX_POSTS = 100
+      const media: any[] = []
+      let nextUrl: string | undefined = `${this.BASE_URL}/${igUserId}/media?access_token=${pageAccessToken}&fields=${this.MEDIA_FIELDS}&limit=25`
 
-      if (!mediaResponse.ok) {
-        throw new Error("Failed to fetch Instagram media")
+      while (nextUrl && media.length < MAX_POSTS) {
+        const mediaResponse: Response = await fetch(nextUrl)
+
+        if (!mediaResponse.ok) {
+          throw new Error("Failed to fetch Instagram media")
+        }
+
+        const mediaData: any = await mediaResponse.json()
+        const newMedia = mediaData.data || []
+        media.push(...newMedia)
+
+        nextUrl = mediaData.paging?.next
+
+        logger.info(`Fetched ${newMedia.length} media items, total: ${media.length}`, {
+          hasMore: !!nextUrl,
+          remaining: MAX_POSTS - media.length
+        })
+
+        // Add delay between requests to respect rate limits
+        if (nextUrl && media.length < MAX_POSTS) {
+          await new Promise(resolve => setTimeout(resolve, 100))
+        }
       }
 
-      const mediaData = await mediaResponse.json()
-      const media = mediaData.data || []
-
       if (media.length === 0) {
-        return this.getMockInstagramPostsAnalytics()
+        logger.warn('No Instagram media found for this account')
+        throw new Error('No Instagram posts found. Please ensure your account has published posts and you have the instagram_basic permission.')
+      }
+
+      logger.info(`Completed media fetch with ${media.length} items, now fetching insights per media...`)
+
+      // Fetch insights separately for each media item (batched to avoid rate limits)
+      const BATCH_SIZE = 10
+      for (let i = 0; i < media.length; i += BATCH_SIZE) {
+        const batch = media.slice(i, i + BATCH_SIZE)
+
+        const insightsPromises = batch.map((post: any) =>
+          this.getMediaInsights(post.id, post.media_type, post.media_product_type, pageAccessToken)
+        )
+        const insightsResults = await Promise.all(insightsPromises)
+
+        batch.forEach((post: any, idx: number) => {
+          post.insights = { data: insightsResults[idx] }
+        })
+
+        logger.info(`Processed insights batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(media.length / BATCH_SIZE)}`, {
+          batchSize: batch.length,
+          totalProcessed: Math.min(i + BATCH_SIZE, media.length)
+        })
       }
 
       // Process comprehensive analytics
-      return this.processComprehensiveInstagramData(media)
+      const result = this.processComprehensiveInstagramData(media)
+      return result
     } catch (error) {
-      logger.error("Failed to fetch comprehensive Instagram posts analytics", { error })
-      return this.getMockInstagramPostsAnalytics()
+      logger.error("Failed to fetch comprehensive Instagram posts analytics", {
+        error: error instanceof Error ? error.message : error,
+        stack: error instanceof Error ? error.stack : undefined
+      })
+      throw new Error(`Instagram API: Failed to fetch posts analytics. ${error instanceof Error ? error.message : 'Unknown error'}. Please check your connection and token permissions.`)
+    }
+  }
+
+  /**
+   * Fetch insights for a single media item based on its type
+   * @param mediaId - Instagram media ID
+   * @param mediaType - IMAGE, VIDEO, CAROUSEL_ALBUM, REELS, or STORY
+   * @param pageAccessToken - Page access token
+   * @returns Array of insight objects with name and values
+   */
+  private static async getMediaInsights(
+    mediaId: string,
+    mediaType: string,
+    mediaProductType: string | undefined,
+    pageAccessToken: string
+  ): Promise<any[]> {
+    try {
+      // Determine correct metrics based on media type
+      let metrics = this.IMAGE_CAROUSEL_INSIGHTS
+
+      if (mediaType === 'VIDEO' || mediaProductType === 'REELS') {
+        metrics = this.VIDEO_REEL_INSIGHTS
+      } else if (mediaProductType === 'STORY') {
+        metrics = this.STORY_INSIGHTS
+      } else if (mediaType === 'CAROUSEL_ALBUM') {
+        metrics = this.IMAGE_CAROUSEL_INSIGHTS
+      }
+
+      const url = `${this.BASE_URL}/${mediaId}/insights?metric=${metrics}&access_token=${pageAccessToken}`
+
+      const response = await fetch(url)
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: { message: 'Unknown error' } }))
+        const errorMessage = errorData.error?.message || 'Unknown error'
+
+        // Check for permission error (#10)
+        if (errorData.error?.code === 10 || errorMessage.includes('does not have permission')) {
+          logger.error(`Instagram Insights Permission Error - Advanced Access Required`, {
+            mediaId,
+            errorCode: errorData.error?.code,
+            errorMessage,
+            solution: 'Your Facebook App is in Standard Access mode. To access Instagram Insights, you need: 1) Submit your app for App Review to get Advanced Access for pages_read_engagement and instagram_basic permissions, OR 2) Add your Instagram account as a Test User in your Facebook App settings during development. Reference: https://developers.facebook.com/docs/instagram-platform/overview#access-levels'
+          })
+          return []
+        }
+
+        logger.warn(`Failed to fetch insights for media ${mediaId}`, {
+          mediaType,
+          mediaProductType,
+          status: response.status,
+          error: errorMessage
+        })
+        return []
+      }
+
+      const data = await response.json()
+
+      logger.info(`Fetched insights for media ${mediaId}`, {
+        mediaType,
+        mediaProductType,
+        insightsCount: data.data?.length || 0,
+        insightNames: data.data?.map((i: any) => i.name) || []
+      })
+
+      return data.data || []
+    } catch (error) {
+      logger.error(`Error fetching media insights`, { error, mediaId, mediaType })
+      return []
     }
   }
 
   /**
    * Get account-level insights using Facebook Graph API
+   * Updated to handle lifetime vs period metrics separately
    */
   private static async getAccountInsights(igUserId: string, pageAccessToken: string) {
     try {
-      const response = await fetch(
-        `${this.BASE_URL}/${igUserId}/insights?access_token=${pageAccessToken}&metric=${this.ACCOUNT_INSIGHTS_FIELDS}&period=week`
+      // Call 1: Lifetime metrics (audience demographics)
+      const lifetimeResponse = await fetch(
+        `${this.BASE_URL}/${igUserId}/insights?access_token=${pageAccessToken}&metric=${this.ACCOUNT_INSIGHTS_LIFETIME}&period=lifetime`
       )
 
-      if (!response.ok) {
+      // Call 2: Period metrics (last 7 days)
+      const sevenDaysAgo = Math.floor(Date.now() / 1000) - 7 * 24 * 60 * 60
+      const now = Math.floor(Date.now() / 1000)
+      const periodResponse = await fetch(
+        `${this.BASE_URL}/${igUserId}/insights?access_token=${pageAccessToken}&metric=${this.ACCOUNT_INSIGHTS_PERIOD}&period=day&since=${sevenDaysAgo}&until=${now}`
+      )
+
+      if (!lifetimeResponse.ok && !periodResponse.ok) {
         throw new Error("Failed to fetch Instagram account insights")
       }
 
-      const data = await response.json()
       const insights: any = {}
 
-      data.data?.forEach((metric: any) => {
-        const value = metric.values?.[metric.values.length - 1]?.value || 0
-        insights[metric.name] = value
+      // Process lifetime metrics
+      if (lifetimeResponse.ok) {
+        const lifetimeData = await lifetimeResponse.json()
+        lifetimeData.data?.forEach((metric: any) => {
+          insights[metric.name] = metric.values?.[0]?.value || null
+        })
+      }
+
+      // Process period metrics (sum values across days)
+      if (periodResponse.ok) {
+        const periodData = await periodResponse.json()
+        periodData.data?.forEach((metric: any) => {
+          const total = metric.values?.reduce((sum: number, day: any) => sum + (day.value || 0), 0) || 0
+          insights[metric.name] = total
+        })
+      }
+
+      logger.info("Instagram account insights fetched successfully", {
+        lifetimeMetrics: lifetimeResponse.ok,
+        periodMetrics: periodResponse.ok,
+        insightCount: Object.keys(insights).length
       })
 
       return insights
     } catch (error) {
       logger.warn("Failed to fetch Instagram account insights", { error })
       return {}
+    }
+  }
+
+  /**
+   * Fetch Instagram Stories analytics (separate from feed posts)
+   * Stories are ephemeral (24 hours) so this fetches currently active stories
+   */
+  private static async getStoriesAnalytics(
+    igUserId: string,
+    pageAccessToken: string
+  ): Promise<any> {
+    try {
+      // Fetch active stories
+      const storiesResponse = await fetch(
+        `${this.BASE_URL}/${igUserId}/stories?fields=id,media_type,timestamp,media_url&access_token=${pageAccessToken}`
+      )
+
+      if (!storiesResponse.ok) {
+        logger.info('No active stories or stories fetch failed')
+        return null
+      }
+
+      const storiesData = await storiesResponse.json()
+      const stories = storiesData.data || []
+
+      if (stories.length === 0) {
+        logger.info('No active stories found')
+        return null
+      }
+
+      logger.info(`Found ${stories.length} active stories, fetching insights...`)
+
+      // Fetch insights for each story
+      const storyInsightsPromises = stories.map((story: any) =>
+        fetch(
+          `${this.BASE_URL}/${story.id}/insights?metric=${this.STORY_INSIGHTS}&access_token=${pageAccessToken}`
+        ).then(res => res.json()).catch(err => {
+          logger.warn(`Failed to fetch insights for story ${story.id}`, { error: err })
+          return { data: [] }
+        })
+      )
+
+      const insightsResults = await Promise.all(storyInsightsPromises)
+
+      // Aggregate story metrics
+      let totalImpressions = 0
+      let totalReach = 0
+      let totalReplies = 0
+      let totalTapsForward = 0
+      let totalTapsBack = 0
+      let totalExits = 0
+
+      insightsResults.forEach(result => {
+        const insights = result.data || []
+        totalImpressions += this.getInsightValue(insights, 'impressions', 'latest')
+        totalReach += this.getInsightValue(insights, 'reach', 'latest')
+        totalReplies += this.getInsightValue(insights, 'replies', 'latest')
+        totalTapsForward += this.getInsightValue(insights, 'taps_forward', 'latest')
+        totalTapsBack += this.getInsightValue(insights, 'taps_back', 'latest')
+        totalExits += this.getInsightValue(insights, 'exits', 'latest')
+      })
+
+      const avgCompletionRate = (totalTapsForward + totalTapsBack) > 0
+        ? ((totalTapsForward + totalTapsBack - totalExits) / (totalTapsForward + totalTapsBack)) * 100
+        : 0
+
+      logger.info('Stories analytics aggregated', {
+        storiesCount: stories.length,
+        totalImpressions,
+        totalReach,
+        completionRate: avgCompletionRate.toFixed(2) + '%'
+      })
+
+      return {
+        totalStoryImpressions: totalImpressions,
+        totalStoryReach: totalReach,
+        storyReplies: totalReplies,
+        storyForwardTaps: totalTapsForward,
+        storyBackTaps: totalTapsBack,
+        storyExits: totalExits,
+        totalStoryViews: totalImpressions, // Impressions = views for stories
+        avgStoryCompletionRate: parseFloat(avgCompletionRate.toFixed(2)),
+        activeStoriesCount: stories.length
+      }
+    } catch (error) {
+      logger.error('Failed to fetch stories analytics', { error })
+      return null
     }
   }
 
@@ -992,13 +1452,26 @@ export class InstagramApiClient extends BaseApiClient {
       const likes = post.like_count || 0
       const comments = post.comments_count || 0
 
-      // If insights are empty but we have basic engagement data, use that
-      const finalEngagement = engagement > 0 ? engagement : (likes + comments)
-      const finalReach = reach > 0 ? reach : Math.floor(finalEngagement * 15) // Estimate
-      const finalImpressions = impressions > 0 ? impressions : Math.floor(finalEngagement * 25) // Estimate
+      // Use only real data - no fake estimations
+      let finalEngagement = engagement || 0
+      const finalReach = reach || 0
+      const finalImpressions = impressions || 0
+
+      // If insights unavailable, only use basic engagement (likes + comments) with warning
+      if (!engagement && (likes > 0 || comments > 0)) {
+        logger.warn('Insights unavailable for post, using basic engagement only', {
+          postId: post.id,
+          mediaType: post.media_type,
+          likes,
+          comments,
+          note: 'Consider re-authenticating with instagram_manage_insights permission'
+        })
+        finalEngagement = likes + comments
+      }
 
       logger.info("Calculated metrics for Instagram post", {
         postId: post.id,
+        mediaType: post.media_type,
         insights: { engagement, reach, impressions, saved },
         basic: { likes, comments },
         final: { engagement: finalEngagement, reach: finalReach, impressions: finalImpressions }
@@ -1116,7 +1589,7 @@ export class InstagramApiClient extends BaseApiClient {
       contentPerformanceArray[0] || { type: 'image', avgEngagement: 0 }
     )
 
-    return {
+    const finalResult = {
       totalPosts: media.length,
       avgEngagement,
       avgReach,
@@ -1180,14 +1653,43 @@ export class InstagramApiClient extends BaseApiClient {
         followersGrowth: this.generateFollowersGrowth()
       }
     }
+
+    return finalResult
   }
 
   /**
    * Helper method to extract insight values
    */
-  private static getInsightValue(insights: any[], metricName: string): number {
+  /**
+   * Extract insight value handling both lifetime and period-based metrics
+   * @param insights - Array of insight objects
+   * @param metricName - Name of the metric to extract
+   * @param aggregate - 'sum' for period metrics (aggregate daily values), 'latest' for lifetime metrics (single value)
+   * @returns The extracted metric value
+   * 
+   * - Lifetime metrics: Single value in values[0]
+   * - Period metrics: Multiple values, sum or get latest
+   */
+  private static getInsightValue(insights: any[], metricName: string, aggregate: 'sum' | 'latest' = 'latest'): number {
     const metric = insights.find(insight => insight.name === metricName)
-    return parseInt(metric?.values?.[0]?.value || '0')
+    if (!metric?.values?.length) return 0
+
+    // Lifetime metrics or single value
+    if (metric.values.length === 1 || metric.period === 'lifetime') {
+      return parseInt(metric.values[0]?.value || '0')
+    }
+
+    // Period metrics with multiple values
+    if (aggregate === 'sum') {
+      // Sum all values across the time period
+      return metric.values.reduce((sum: number, item: any) => {
+        return sum + parseInt(item.value || '0')
+      }, 0)
+    } else {
+      // Get latest value (most recent data point)
+      const latest = metric.values[metric.values.length - 1]
+      return parseInt(latest?.value || '0')
+    }
   }
 
   /**
@@ -1409,6 +1911,104 @@ export class InstagramApiClient extends BaseApiClient {
           { date: '2024-01-06', count: 1278 },
           { date: '2024-01-07', count: 1289 }
         ]
+      }
+    }
+  }
+
+  /**
+   * Get empty Instagram ads analytics state with custom message
+   * Used when user has no ads or no ad accounts
+   */
+  private static getEmptyAdsAnalytics(message: string): InstagramAdsAnalytics {
+    return {
+      totalSpend: 0,
+      totalReach: 0,
+      totalImpressions: 0,
+      totalClicks: 0,
+      cpm: 0,
+      cpc: 0,
+      ctr: 0,
+      roas: 0,
+      error: {
+        type: 'no_ads',
+        message: message
+      },
+      topAd: undefined,
+      spendTrend: [],
+      audienceInsights: {
+        ageGroups: [],
+        genders: [],
+        topLocations: []
+      },
+      placementBreakdown: {
+        instagram_feed: { impressions: 0, reach: 0, clicks: 0, spend: 0, ctr: 0, cpc: 0 },
+        instagram_stories: { impressions: 0, reach: 0, clicks: 0, spend: 0, ctr: 0, cpc: 0 },
+        instagram_reels: { impressions: 0, reach: 0, clicks: 0, spend: 0, ctr: 0, cpc: 0 },
+        instagram_explore: { impressions: 0, reach: 0, clicks: 0, spend: 0, ctr: 0, cpc: 0 }
+      },
+      adsAudienceInsights: {
+        ageGroups: [],
+        genders: [],
+        locations: [],
+        interests: [],
+        behaviors: [],
+        devices: [],
+        platforms: []
+      },
+      instagramSpecificMetrics: {
+        storiesImpressions: 0,
+        storiesReach: 0,
+        storiesClicks: 0,
+        storiesCtr: 0,
+        feedImpressions: 0,
+        feedReach: 0,
+        feedClicks: 0,
+        feedCtr: 0,
+        reelsImpressions: 0,
+        reelsReach: 0,
+        reelsClicks: 0,
+        reelsCtr: 0,
+        catalogViews: 0,
+        purchaseClicks: 0,
+        addToCartClicks: 0,
+        checkoutClicks: 0
+      },
+      instagramActions: {
+        profileVisits: 0,
+        websiteClicks: 0,
+        callClicks: 0,
+        emailClicks: 0,
+        directionsClicks: 0,
+        messageClicks: 0,
+        leadSubmissions: 0,
+        appInstalls: 0,
+        videoViews: 0,
+        postEngagements: 0,
+        pageFollows: 0,
+        linkClicks: 0
+      },
+      creativePerformance: [],
+      conversionMetrics: {
+        purchases: { count: 0, value: 0 },
+        addToCart: { count: 0, value: 0 },
+        initiateCheckout: { count: 0, value: 0 },
+        viewContent: { count: 0, value: 0 },
+        search: { count: 0, value: 0 },
+        lead: { count: 0, value: 0 },
+        completeRegistration: { count: 0, value: 0 },
+        subscribe: { count: 0, value: 0 },
+        customEvents: []
+      },
+      videoMetrics: {
+        videoViews: 0,
+        videoWatches25Percent: 0,
+        videoWatches50Percent: 0,
+        videoWatches75Percent: 0,
+        videoWatches100Percent: 0,
+        videoAvgTimeWatched: 0,
+        videoAvgWatchPercentage: 0,
+        thumbStops: 0,
+        videoPlaysToComplete: 0
       }
     }
   }
