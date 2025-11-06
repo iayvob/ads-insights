@@ -228,8 +228,137 @@ export class AnalyticsDashboardService {
     try {
       switch (provider.provider) {
         case "facebook": {
-          const rawData = await FacebookApiClient.fetchData(provider.accessToken)
-          return AnalyticsAdapter.transformFacebookData(rawData, includeAds)
+          try {
+            // Facebook uses OAuth with stored business account data (pages and ad accounts)
+            logger.info("Processing Facebook analytics", {
+              providerId: provider.id,
+              hasAccessToken: !!provider.accessToken,
+              accessTokenLength: provider.accessToken?.length,
+              hasBusinessAccounts: !!provider.businessAccounts,
+              businessAccountsType: typeof provider.businessAccounts,
+            });
+
+            console.log('🔍 [FACEBOOK-DASHBOARD] Starting Facebook analytics fetch')
+            console.log('🔑 [FACEBOOK-DASHBOARD] Access token:', provider.accessToken?.substring(0, 30) + '...')
+            console.log('📋 [FACEBOOK-DASHBOARD] Provider businessAccounts:', {
+              exists: !!provider.businessAccounts,
+              type: typeof provider.businessAccounts,
+              length: typeof provider.businessAccounts === 'string'
+                ? provider.businessAccounts.length
+                : Array.isArray(provider.businessAccounts)
+                  ? provider.businessAccounts.length
+                  : 'not an array',
+              raw: provider.businessAccounts ?
+                (typeof provider.businessAccounts === 'string'
+                  ? provider.businessAccounts.substring(0, 200)
+                  : JSON.stringify(provider.businessAccounts).substring(0, 200))
+                : 'null'
+            })
+
+            // Parse businessAccounts to get fallback profile/page data
+            let fallbackPageData: any = undefined
+            try {
+              console.log('🔍 [FACEBOOK-DASHBOARD] Attempting to parse businessAccounts...')
+
+              if (provider.businessAccounts) {
+                let parsedData = typeof provider.businessAccounts === 'string'
+                  ? JSON.parse(provider.businessAccounts)
+                  : provider.businessAccounts
+
+                console.log('📊 [FACEBOOK-DASHBOARD] Parsed businessAccounts:', {
+                  type: typeof parsedData,
+                  isArray: Array.isArray(parsedData),
+                  keys: typeof parsedData === 'object' && parsedData !== null ? Object.keys(parsedData) : 'N/A',
+                  hasPagesProperty: parsedData && typeof parsedData === 'object' && 'pages' in parsedData,
+                  hasAdAccountsProperty: parsedData && typeof parsedData === 'object' && 'adAccounts' in parsedData
+                })
+
+                // Extract the pages array from the nested structure
+                // OAuth callback stores it as: { pages: [...], adAccounts: [...], analytics_summary: {...} }
+                const facebookPages = parsedData && typeof parsedData === 'object' && 'pages' in parsedData
+                  ? parsedData.pages
+                  : (Array.isArray(parsedData) ? parsedData : null)
+
+                console.log('📊 [FACEBOOK-DASHBOARD] Extracted pages array:', {
+                  isArray: Array.isArray(facebookPages),
+                  length: Array.isArray(facebookPages) ? facebookPages.length : 'not array',
+                  firstPageKeys: Array.isArray(facebookPages) && facebookPages[0]
+                    ? Object.keys(facebookPages[0])
+                    : 'no first page'
+                })
+
+                // Get the primary Facebook page (highest follower count) as fallback
+                if (Array.isArray(facebookPages) && facebookPages.length > 0) {
+                  const primaryPage = facebookPages.reduce((prev: any, current: any) =>
+                    (current.fan_count || 0) > (prev.fan_count || 0) ? current : prev
+                  )
+                  fallbackPageData = {
+                    id: primaryPage.id,
+                    name: primaryPage.name,
+                    fan_count: primaryPage.fan_count,
+                    category: primaryPage.category,
+                    talking_about_count: primaryPage.talking_about_count,
+                    access_token: primaryPage.access_token
+                  }
+                  console.log('✅ [FACEBOOK-DASHBOARD] Successfully extracted fallback page data:', {
+                    id: fallbackPageData.id,
+                    name: fallbackPageData.name,
+                    fan_count: fallbackPageData.fan_count,
+                    category: fallbackPageData.category
+                  })
+                } else {
+                  console.warn('⚠️ [FACEBOOK-DASHBOARD] No pages found in businessAccounts')
+                }
+              } else {
+                console.warn('⚠️ [FACEBOOK-DASHBOARD] provider.businessAccounts is null/undefined')
+              }
+            } catch (parseError) {
+              console.error('❌ [FACEBOOK-DASHBOARD] Error parsing businessAccounts:', parseError)
+              console.error('❌ [FACEBOOK-DASHBOARD] Raw businessAccounts value:', provider.businessAccounts)
+            }
+
+            // Call the Facebook API with the provider's access token
+            const facebookData = await FacebookApiClient.fetchAnalytics(
+              provider.accessToken || '',
+              includeAds,
+              fallbackPageData // Pass fallback data for when Graph API fails
+            )
+
+            console.log('✅ [FACEBOOK-DASHBOARD] Facebook API response:', {
+              hasPageData: !!facebookData.pageData,
+              hasPosts: !!facebookData.posts,
+              hasAds: !!facebookData.ads,
+              totalPosts: facebookData.posts?.totalPosts,
+              avgEngagement: facebookData.posts?.avgEngagement,
+              pageName: facebookData.pageData?.name,
+              fanCount: facebookData.pageData?.fan_count
+            })
+
+            logger.info("Facebook analytics fetched from API", {
+              providerId: provider.id,
+              hasPageData: !!facebookData.pageData,
+              hasPosts: !!facebookData.posts,
+              hasAds: !!facebookData.ads,
+              totalPosts: facebookData.posts?.totalPosts,
+              avgEngagement: facebookData.posts?.avgEngagement,
+              pageName: facebookData.pageData?.name
+            })
+
+            // Return FacebookAnalytics format directly (already structured correctly)
+            return {
+              posts: facebookData.posts,
+              ads: facebookData.ads, // null if no ads access or data
+              lastUpdated: facebookData.lastUpdated,
+              pageData: facebookData.pageData
+            }
+          } catch (error: any) {
+            console.error('❌ [FACEBOOK-DASHBOARD] Error:', error)
+            logger.error("Failed to fetch Facebook analytics", {
+              error: error.message,
+              stack: error.stack
+            })
+            throw error;
+          }
         }
         case "instagram": {
           try {
