@@ -641,6 +641,12 @@ export interface AdsAnalytics {
 
 // Instagram-specific Ads Analytics based on Meta Graph API v23.0
 export interface InstagramAdsAnalytics extends AdsAnalytics {
+  // Optional error state for when no ads are available
+  error?: {
+    type: 'no_ads' | 'no_permissions' | 'api_error'
+    message: string
+  }
+
   // Instagram-specific ad metrics
   instagramSpecificMetrics: {
     // Instagram placement metrics

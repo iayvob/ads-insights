@@ -1,8 +1,8 @@
-import { 
-  PostAnalytics, 
-  AdsAnalytics, 
-  FacebookAnalytics, 
-  InstagramAnalytics, 
+import {
+  PostAnalytics,
+  AdsAnalytics,
+  FacebookAnalytics,
+  InstagramAnalytics,
   TwitterAnalytics,
   TikTokAnalytics,
   AmazonAnalytics
@@ -18,14 +18,14 @@ import { logger } from "@/config/logger"
  * Transforms legacy API client data into new analytics structure
  */
 export class AnalyticsAdapter {
-  
+
   /**
    * Transform Facebook data to new analytics format
    */
   static transformFacebookData(data: FacebookData, includeAds: boolean = false): FacebookAnalytics {
     const posts = this.transformFacebookPosts(data)
     const ads = includeAds ? this.generateMockFacebookAds() : null
-    
+
     return {
       posts,
       ads,
@@ -43,9 +43,22 @@ export class AnalyticsAdapter {
    * Transform Instagram data to new analytics format
    */
   static transformInstagramData(data: InstagramData, includeAds: boolean = false): InstagramAnalytics {
+    console.log('🔄 [ADAPTER] Transforming Instagram data:', {
+      hasProfile: !!data.profile,
+      hasPosts: !!data.posts,
+      hasInsights: !!data.insights,
+      hasMedia: !!data.media,
+      profileUsername: data.profile?.username,
+      profileFollowers: data.profile?.followers_count,
+      postsKeys: data.posts ? Object.keys(data.posts) : [],
+      postsData: data.posts
+    })
+
     const posts = this.transformInstagramPosts(data)
     const ads = includeAds ? this.generateMockInstagramAds() : null
-    
+
+    console.log('✅ [ADAPTER] Transformed posts:', posts)
+
     return {
       posts,
       ads,
@@ -65,7 +78,7 @@ export class AnalyticsAdapter {
   static transformTwitterData(data: TwitterData, includeAds: boolean = false): TwitterAnalytics {
     const posts = this.transformTwitterPosts(data)
     const ads = includeAds ? this.generateMockTwitterAds() : null
-    
+
     return {
       posts,
       ads,
@@ -85,7 +98,7 @@ export class AnalyticsAdapter {
   static transformTikTokData(data: TikTokData, includeAds: boolean = false): TikTokAnalytics {
     const posts = this.transformTikTokPosts(data)
     const ads = includeAds ? this.generateMockTikTokAds() : null
-    
+
     return {
       posts,
       ads,
@@ -116,16 +129,16 @@ export class AnalyticsAdapter {
   private static transformFacebookPosts(data: FacebookData): PostAnalytics {
     const posts = data.posts || []
     const totalPosts = posts.length
-    
+
     if (totalPosts === 0) {
       return this.getEmptyPostAnalytics()
     }
 
     // Calculate averages
-    const totalEngagement = posts.reduce((sum, post) => 
+    const totalEngagement = posts.reduce((sum, post) =>
       sum + (post.likes || 0) + (post.comments || 0) + (post.shares || 0), 0)
     const avgEngagement = totalEngagement / totalPosts
-    
+
     // Use insights data for reach and impressions
     const avgReach = data.insights.reach / Math.max(totalPosts, 1)
     const avgImpressions = data.insights.impressions / Math.max(totalPosts, 1)
@@ -168,16 +181,16 @@ export class AnalyticsAdapter {
   private static transformInstagramPosts(data: InstagramData): PostAnalytics {
     const media = data.media || []
     const totalPosts = media.length
-    
+
     if (totalPosts === 0) {
       return this.getEmptyPostAnalytics()
     }
 
     // Calculate averages
-    const totalEngagement = media.reduce((sum, item) => 
+    const totalEngagement = media.reduce((sum, item) =>
       sum + (item.like_count || 0) + (item.comments_count || 0), 0)
     const avgEngagement = totalEngagement / totalPosts
-    
+
     // Use insights data for reach and impressions
     const avgReach = data.insights.reach / Math.max(totalPosts, 1)
     const avgImpressions = data.insights.impressions / Math.max(totalPosts, 1)
@@ -230,16 +243,16 @@ export class AnalyticsAdapter {
   private static transformTwitterPosts(data: TwitterData): PostAnalytics {
     const tweets = data.tweets || []
     const totalPosts = tweets.length
-    
+
     if (totalPosts === 0) {
       return this.getEmptyPostAnalytics()
     }
 
     // Calculate averages
-    const totalEngagement = tweets.reduce((sum, tweet) => 
+    const totalEngagement = tweets.reduce((sum, tweet) =>
       sum + (tweet.like_count || 0) + (tweet.retweet_count || 0) + (tweet.reply_count || 0), 0)
     const avgEngagement = totalEngagement / totalPosts
-    
+
     // Use analytics data for reach and impressions
     const avgReach = (data.analytics.impressions * 0.7) / Math.max(totalPosts, 1) // Estimate reach as 70% of impressions
     const avgImpressions = data.analytics.impressions / Math.max(totalPosts, 1)
@@ -294,11 +307,11 @@ export class AnalyticsAdapter {
     // Generate mock trend data for the last 7 days
     const trends = []
     const now = new Date()
-    
+
     for (let i = 6; i >= 0; i--) {
       const date = new Date(now.getTime() - i * 24 * 60 * 60 * 1000)
       const variance = 0.8 + Math.random() * 0.4 // 80% to 120% variance
-      
+
       trends.push({
         date: date.toISOString().split('T')[0],
         engagement: Math.round((totalEngagement / 7) * variance),
@@ -306,7 +319,7 @@ export class AnalyticsAdapter {
         impressions: Math.round((totalImpressions / 7) * variance)
       })
     }
-    
+
     return trends
   }
 
@@ -440,12 +453,12 @@ export class AnalyticsAdapter {
   private static generateSpendTrend(totalSpend: number) {
     const trends = []
     const now = new Date()
-    
+
     for (let i = 6; i >= 0; i--) {
       const date = new Date(now.getTime() - i * 24 * 60 * 60 * 1000)
       const variance = 0.7 + Math.random() * 0.6 // 70% to 130% variance
       const dailySpend = (totalSpend / 7) * variance
-      
+
       trends.push({
         date: date.toISOString().split('T')[0],
         spend: Math.round(dailySpend * 100) / 100,
@@ -454,7 +467,7 @@ export class AnalyticsAdapter {
         clicks: Math.round(350 * variance)
       })
     }
-    
+
     return trends
   }
 
@@ -463,7 +476,7 @@ export class AnalyticsAdapter {
     const videos = data.videos || []
     const photos = data.photos || []
     const totalPosts = videos.length + photos.length
-    
+
     if (totalPosts === 0) {
       return this.getEmptyPostAnalytics()
     }
@@ -473,7 +486,7 @@ export class AnalyticsAdapter {
     const totalLikes = [...videos, ...photos].reduce((sum, item) => sum + (item.like_count || 0), 0)
     const totalShares = [...videos, ...photos].reduce((sum, item) => sum + (item.share_count || 0), 0)
     const totalComments = [...videos, ...photos].reduce((sum, item) => sum + (item.comment_count || 0), 0)
-    
+
     const avgEngagement = (totalLikes + totalShares + totalComments) / totalPosts
     const avgReach = totalViews * 0.8 / totalPosts // Estimate reach as 80% of views
     const avgImpressions = totalViews / totalPosts
@@ -483,7 +496,7 @@ export class AnalyticsAdapter {
       ...videos.map(v => ({ ...v, type: 'video' as const, id: v.video_id, created_time: v.create_time })),
       ...photos.map(p => ({ ...p, type: 'image' as const, id: p.photo_id, created_time: p.create_time }))
     ]
-    
+
     const topPost = allPosts.reduce((top, post) => {
       const engagement = (post.like_count || 0) + (post.share_count || 0) + (post.comment_count || 0)
       const topEngagement = (top.like_count || 0) + (top.share_count || 0) + (top.comment_count || 0)
@@ -496,12 +509,12 @@ export class AnalyticsAdapter {
     // Analyze content performance
     const contentPerformance = []
     if (videos.length > 0) {
-      const videoEngagement = videos.reduce((sum, video) => 
+      const videoEngagement = videos.reduce((sum, video) =>
         sum + (video.like_count || 0) + (video.share_count || 0) + (video.comment_count || 0), 0) / videos.length
       contentPerformance.push({ type: 'video' as const, count: videos.length, avgEngagement: videoEngagement })
     }
     if (photos.length > 0) {
-      const photoEngagement = photos.reduce((sum, photo) => 
+      const photoEngagement = photos.reduce((sum, photo) =>
         sum + (photo.like_count || 0) + (photo.share_count || 0) + (photo.comment_count || 0), 0) / photos.length
       contentPerformance.push({ type: 'image' as const, count: photos.length, avgEngagement: photoEngagement })
     }
