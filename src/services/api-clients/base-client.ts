@@ -94,6 +94,18 @@ export abstract class BaseApiClient {
         logger.error(`API request failed: ${url}`, {
           status: response.status,
           error: errorData,
+          errorMessage: errorData?.error?.message,
+          errorCode: errorData?.error?.code,
+          errorType: errorData?.error?.type
+        })
+        
+        console.error(`🚨 [API-ERROR] ${response.status} - ${errorData?.error?.message || errorMessage}`, {
+          url: url.substring(0, 150) + '...',
+          status: response.status,
+          errorCode: errorData?.error?.code,
+          errorType: errorData?.error?.type,
+          errorSubcode: errorData?.error?.error_subcode,
+          fbtraceId: errorData?.error?.fbtrace_id
         })
         
         const apiError = new Error(`${errorMessage}: ${response.status}`) as Error & ApiError

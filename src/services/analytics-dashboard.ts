@@ -269,14 +269,14 @@ export class AnalyticsDashboardService {
                   type: typeof parsedData,
                   isArray: Array.isArray(parsedData),
                   keys: typeof parsedData === 'object' && parsedData !== null ? Object.keys(parsedData) : 'N/A',
-                  hasPagesProperty: parsedData && typeof parsedData === 'object' && 'pages' in parsedData,
-                  hasAdAccountsProperty: parsedData && typeof parsedData === 'object' && 'adAccounts' in parsedData
+                  hasFacebookPagesProperty: parsedData && typeof parsedData === 'object' && 'facebook_pages' in parsedData,
+                  hasBusinessAccountsProperty: parsedData && typeof parsedData === 'object' && 'business_accounts' in parsedData
                 })
 
-                // Extract the pages array from the nested structure
-                // OAuth callback stores it as: { pages: [...], adAccounts: [...], analytics_summary: {...} }
-                const facebookPages = parsedData && typeof parsedData === 'object' && 'pages' in parsedData
-                  ? parsedData.pages
+                // Extract the facebook_pages array from the nested structure
+                // OAuth callback stores it as: { business_accounts: [...], facebook_pages: [...] }
+                const facebookPages = parsedData && typeof parsedData === 'object' && 'facebook_pages' in parsedData
+                  ? parsedData.facebook_pages
                   : (Array.isArray(parsedData) ? parsedData : null)
 
                 console.log('📊 [FACEBOOK-DASHBOARD] Extracted pages array:', {
