@@ -209,10 +209,20 @@ export const GET = withErrorHandling(async (request: NextRequest) => {
 
     // Fetch ads analytics using enhanced FacebookApiClient for paid plans
     let adsAnalytics: AdsAnalytics | undefined
+    let adsError: any = undefined
+
     if (hasAdsAccess) {
+      console.log('💰 [FACEBOOK-ROUTE] User has ads access, fetching ads analytics...')
       try {
         // Use the enhanced FacebookApiClient for comprehensive ads analytics
         const enhancedAdsData = await FacebookApiClient.getAdsAnalytics(authProvider.accessToken)
+
+        console.log('✅ [FACEBOOK-ROUTE] Enhanced ads data fetched:', {
+          totalSpend: enhancedAdsData.totalSpend,
+          totalImpressions: enhancedAdsData.totalImpressions,
+          totalClicks: enhancedAdsData.totalClicks,
+          hasAudienceInsights: !!enhancedAdsData.audienceInsights
+        })
 
         // Convert to expected format
         adsAnalytics = mapEnhancedAdsToRouteFormat(enhancedAdsData)
@@ -228,14 +238,17 @@ export const GET = withErrorHandling(async (request: NextRequest) => {
             topLocations: enhancedAdsData.audienceInsights?.topLocations?.length || 0
           }
         })
-      } catch (adsError) {
+      } catch (adsError_) {
+        adsError = adsError_
+        console.warn('⚠️ [FACEBOOK-ROUTE] Enhanced ads analytics failed:', adsError_)
         logger.warn("Enhanced Facebook ads analytics not available", {
-          error: adsError,
+          error: adsError_,
           userId: session.userId
         })
 
         // Fallback to legacy ads analytics if enhanced version fails
         try {
+          console.log('🔄 [FACEBOOK-ROUTE] Trying fallback ads analytics...')
           const primaryAdAccount = adAccounts.find((acc: any) => acc.is_primary) || adAccounts[0]
           if (primaryAdAccount) {
             adsAnalytics = await fetchFacebookAdsAnalytics(
@@ -243,16 +256,22 @@ export const GET = withErrorHandling(async (request: NextRequest) => {
               authProvider.accessToken,
               userPlan
             )
+            console.log('✅ [FACEBOOK-ROUTE] Fallback ads analytics used')
             logger.info("Fallback Facebook ads analytics used", { userId: session.userId })
+          } else {
+            console.warn('⚠️ [FACEBOOK-ROUTE] No primary ad account found')
           }
         } catch (fallbackError) {
+          console.error('❌ [FACEBOOK-ROUTE] Both enhanced and fallback ads analytics failed')
           logger.error("Both enhanced and fallback Facebook ads analytics failed", {
-            enhancedError: adsError,
+            enhancedError: adsError_,
             fallbackError,
             userId: session.userId
           })
         }
       }
+    } else {
+      console.log('ℹ️ [FACEBOOK-ROUTE] User does not have ads access (plan:', userPlan, ')')
     }
 
     const analytics: FacebookAnalytics = {
@@ -268,6 +287,15 @@ export const GET = withErrorHandling(async (request: NextRequest) => {
       plan: userPlan
     }
 
+    console.log('✅ [FACEBOOK-ROUTE] Final analytics:', {
+      hasPostsData: !!postsAnalytics,
+      hasAdsData: !!adsAnalytics,
+      pagesCount: facebookPages.length,
+      adAccountsCount: adAccounts.length,
+      plan: userPlan,
+      totalFollowers: analytics.account.total_followers
+    })
+
     logger.info("Facebook analytics fetched successfully", {
       userId: session.userId,
       plan: userPlan,
@@ -281,6 +309,12 @@ export const GET = withErrorHandling(async (request: NextRequest) => {
       success: true,
       data: analytics,
       connected: true,
+      hasAdsAccess,
+      adsUnavailableReason: !hasAdsAccess
+        ? 'Upgrade to Premium to access ads analytics'
+        : (adsError && !adsAnalytics)
+          ? 'No ad accounts found or permission denied'
+          : undefined,
       account: {
         userId: authProvider.providerId,
         username: authProvider.username,
@@ -303,6 +337,7 @@ export const GET = withErrorHandling(async (request: NextRequest) => {
     return addSecurityHeaders(response)
 
   } catch (error) {
+    console.error('❌ [FACEBOOK-ROUTE] Dashboard API error:', error)
     logger.error("Facebook dashboard API error", {
       error: error instanceof Error ? error.message : error,
       userId: session.userId
