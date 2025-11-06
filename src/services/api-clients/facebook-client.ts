@@ -201,33 +201,109 @@ export class FacebookApiClient extends BaseApiClient {
   /**
    * Fetch comprehensive Facebook analytics with subscription-aware data
    */
-  static async fetchAnalytics(accessToken: string, includeAds: boolean = false): Promise<FacebookEnhancedData> {
+  static async fetchAnalytics(
+    accessToken: string,
+    includeAds: boolean = false,
+    fallbackPageData?: {
+      id?: string
+      name?: string
+      fan_count?: number
+      category?: string
+      talking_about_count?: number
+      access_token?: string
+    }
+  ): Promise<FacebookEnhancedData> {
     try {
-      logger.info("Fetching Facebook analytics", { includeAds });
+      console.log('🔍 [FACEBOOK-API] Starting fetchAnalytics')
+      console.log('🔑 [FACEBOOK-API] Access token:', accessToken?.substring(0, 30) + '...')
+      console.log('📊 [FACEBOOK-API] Include ads:', includeAds)
+      console.log('💾 [FACEBOOK-API] Has fallback page data:', !!fallbackPageData)
+      if (fallbackPageData) {
+        console.log('💾 [FACEBOOK-API] Fallback page data:', {
+          id: fallbackPageData.id,
+          name: fallbackPageData.name,
+          fan_count: fallbackPageData.fan_count,
+          category: fallbackPageData.category
+        })
+      }
+
+      logger.info("Fetching Facebook analytics", {
+        includeAds,
+        hasFallbackPageData: !!fallbackPageData
+      });
 
       const [pageData, postsAnalytics] = await Promise.allSettled([
-        this.getPageData(accessToken),
-        this.getPostsAnalytics(accessToken),
+        this.getPageData(accessToken, fallbackPageData),
+        this.getPostsAnalytics(accessToken, fallbackPageData),
       ]);
+
+      console.log('📊 [FACEBOOK-API] Page data fetch result:', {
+        status: pageData.status,
+        hasFallback: !!fallbackPageData,
+        value: pageData.status === 'fulfilled' ? {
+          id: (pageData.value as any)?.id,
+          name: (pageData.value as any)?.name,
+          fan_count: (pageData.value as any)?.fan_count
+        } : null,
+        error: pageData.status === 'rejected' ? pageData.reason?.message : null
+      })
+
+      console.log('📊 [FACEBOOK-API] Posts analytics fetch result:', {
+        status: postsAnalytics.status,
+        totalPosts: postsAnalytics.status === 'fulfilled' ? (postsAnalytics.value as any)?.totalPosts : null,
+        error: postsAnalytics.status === 'rejected' ? postsAnalytics.reason?.message : null
+      })
 
       let adsAnalytics: AdsAnalytics | null = null;
 
       // Only fetch ads analytics for premium users
       if (includeAds) {
+        console.log('💰 [FACEBOOK-API] Fetching ads analytics (premium user)...')
         try {
           adsAnalytics = await this.getAdsAnalytics(accessToken);
+          console.log('✅ [FACEBOOK-API] Ads analytics fetched:', {
+            totalSpend: adsAnalytics?.totalSpend,
+            totalImpressions: adsAnalytics?.totalImpressions,
+            totalClicks: adsAnalytics?.totalClicks
+          })
         } catch (error) {
+          console.warn('⚠️ [FACEBOOK-API] Failed to fetch ads analytics:', error)
           logger.warn("Failed to fetch Facebook ads analytics", { error });
           // Continue without ads data rather than failing completely
         }
+      } else {
+        console.log('ℹ️ [FACEBOOK-API] Skipping ads analytics (freemium user)')
       }
 
       const result: FacebookEnhancedData = {
-        pageData: pageData.status === "fulfilled" ? pageData.value as FacebookEnhancedData['pageData'] : this.getMockPageData(),
-        posts: postsAnalytics.status === "fulfilled" ? postsAnalytics.value as PostAnalytics : this.getMockPostsAnalytics(),
+        pageData: pageData.status === "fulfilled"
+          ? pageData.value as FacebookEnhancedData['pageData']
+          : (fallbackPageData
+            ? {
+              id: fallbackPageData.id || 'unknown',
+              name: fallbackPageData.name || 'Unknown Page',
+              fan_count: fallbackPageData.fan_count || 0,
+              checkins: 0,
+              followers_count: fallbackPageData.fan_count || 0,
+              about: '',
+              category: fallbackPageData.category || ''
+            }
+            : this.getMockPageData()),
+        posts: postsAnalytics.status === "fulfilled"
+          ? postsAnalytics.value as PostAnalytics
+          : this.getMockPostsAnalytics(),
         ads: adsAnalytics,
         lastUpdated: new Date().toISOString(),
       };
+
+      console.log('✅ [FACEBOOK-API] Final result:', {
+        hasPageData: !!result.pageData,
+        hasPostsData: !!result.posts,
+        hasAdsData: !!result.ads,
+        pageName: result.pageData?.name,
+        fanCount: result.pageData?.fan_count,
+        totalPosts: result.posts?.totalPosts
+      })
 
       logger.info("Facebook analytics fetched successfully", {
         hasPageData: !!result.pageData,
@@ -238,6 +314,7 @@ export class FacebookApiClient extends BaseApiClient {
       return result;
 
     } catch (error) {
+      console.error('❌ [FACEBOOK-API] fetchAnalytics error:', error)
       logger.error("Facebook analytics fetch failed", { error });
       throw new Error("Failed to fetch Facebook analytics");
     }
@@ -272,17 +349,39 @@ export class FacebookApiClient extends BaseApiClient {
    * Get comprehensive posts analytics for Facebook pages
    * Enhanced with Meta Graph API v23.0 comprehensive posts insights
    */
-  static async getPostsAnalytics(accessToken: string): Promise<PostAnalytics> {
+  static async getPostsAnalytics(
+    accessToken: string,
+    fallbackPageData?: {
+      id?: string
+      name?: string
+      fan_count?: number
+      category?: string
+      talking_about_count?: number
+      access_token?: string
+    }
+  ): Promise<PostAnalytics> {
     try {
+      console.log('🔍 [FACEBOOK-POSTS] Fetching posts analytics...')
+
       // Get Facebook page information
       const pageInfo = await this.getFacebookPageInfo(accessToken);
 
       if (!pageInfo) {
+        console.warn('⚠️ [FACEBOOK-POSTS] No page info found')
+
+        // If fallback data available but no posts can be fetched, return mock data
+        if (fallbackPageData) {
+          console.log('⚠️ [FACEBOOK-POSTS] Using mock posts analytics (no API access)')
+          logger.warn("No Facebook page found for posts analytics, using mock data")
+          return this.getMockPostsAnalytics();
+        }
+
         logger.error("No Facebook page found")
         throw new Error("No Facebook page linked to this account")
       }
 
       const { pageId, pageAccessToken } = pageInfo;
+      console.log('✅ [FACEBOOK-POSTS] Page info found:', { pageId, pageName: pageInfo.pageName })
 
       // Step 1: Get posts with basic data and engagement metrics
       const postsUrl = `${this.BASE_URL}/${pageId}/posts?access_token=${pageAccessToken}&fields=id,message,story,created_time,type,status_type,likes.summary(true),comments.summary(true),shares,reactions.summary(true),attachments{media_type,type,subattachments,media,title,description}&limit=100`;
@@ -290,8 +389,10 @@ export class FacebookApiClient extends BaseApiClient {
       const postsData = await this.makeRequest<any>(postsUrl, {}, "Failed to fetch Facebook posts");
       const posts = postsData.data || [];
 
+      console.log('📊 [FACEBOOK-POSTS] Posts fetched:', { count: posts.length })
+
       if (!posts.length) {
-        console.warn("No posts found for Facebook page")
+        console.warn("⚠️ [FACEBOOK-POSTS] No posts found for Facebook page")
         logger.warn("No posts found for Facebook page")
         throw new Error("No posts found for Facebook page analytics")
       }
@@ -393,6 +494,20 @@ export class FacebookApiClient extends BaseApiClient {
       // Step 12: Generate content insights
       const contentInsights = this.generateContentInsights(processedPosts);
 
+      console.log('✅ [FACEBOOK-POSTS] Posts analytics calculated:', {
+        totalPosts,
+        avgEngagement: totalPosts > 0 ? Math.round(totalEngagements / totalPosts) : 0,
+        avgReach: totalPosts > 0 ? Math.round(totalReach / totalPosts) : 0,
+        avgImpressions: totalPosts > 0 ? Math.round(totalImpressions / totalPosts) : 0,
+        totalReach,
+        totalImpressions,
+        totalEngagements,
+        hasVideoMetrics: !!videoMetrics,
+        hasTopPost: !!topPost,
+        engagementTrendDays: engagementTrend.length,
+        contentTypes: contentPerformance.length
+      })
+
       return {
         totalPosts,
         avgEngagement: totalPosts > 0 ? totalEngagements / totalPosts : 0,
@@ -430,7 +545,7 @@ export class FacebookApiClient extends BaseApiClient {
       };
 
     } catch (error) {
-      console.error("Failed to fetch Facebook posts analytics:", error)
+      console.error("❌ [FACEBOOK-POSTS] Failed to fetch posts analytics:", error)
       logger.error("Failed to fetch Facebook posts analytics", { error })
       throw new Error(`Failed to fetch Facebook posts analytics: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
@@ -442,11 +557,23 @@ export class FacebookApiClient extends BaseApiClient {
    */
   static async getAdsAnalytics(accessToken: string): Promise<AdsAnalytics> {
     try {
+      console.log('🔍 [FACEBOOK-ADS] Fetching ads analytics...')
+
       // Step 1: Get user's ad accounts with proper permissions
       const adAccountsUrl = `${this.BASE_URL}/me/adaccounts?access_token=${accessToken}&fields=id,name,account_status,currency,timezone_name,business`;
       const adAccountsData = await this.makeRequest<any>(adAccountsUrl, {}, "Failed to fetch ad accounts");
 
+      console.log('📊 [FACEBOOK-ADS] Ad accounts fetched:', {
+        count: adAccountsData.data?.length || 0,
+        accounts: adAccountsData.data?.map((acc: any) => ({
+          id: acc.id,
+          name: acc.name,
+          status: acc.account_status
+        }))
+      })
+
       if (!adAccountsData.data?.length) {
+        console.warn('⚠️ [FACEBOOK-ADS] No ad accounts found')
         throw new Error("No ad accounts found. Please ensure you have access to Facebook ads.");
       }
 
@@ -456,6 +583,11 @@ export class FacebookApiClient extends BaseApiClient {
       ) || adAccountsData.data[0];
 
       const accountId = activeAccount.id;
+      console.log('✅ [FACEBOOK-ADS] Using ad account:', {
+        id: accountId,
+        name: activeAccount.name,
+        status: activeAccount.account_status
+      })
 
       // Step 2: Get comprehensive insights using Meta Marketing API v23.0
       const today = new Date();
@@ -466,20 +598,47 @@ export class FacebookApiClient extends BaseApiClient {
         until: today.toISOString().split('T')[0]
       };
 
+      console.log('📅 [FACEBOOK-ADS] Time range:', timeRange)
+
       // Enhanced insights with comprehensive metrics
       const insightsUrl = `${this.BASE_URL}/${accountId}/insights?access_token=${accessToken}&fields=${this.ADS_INSIGHTS_FIELDS}&time_range=${JSON.stringify(timeRange)}&level=campaign&limit=50&attribution_setting=unified`;
 
       const insightsData = await this.makeRequest<any>(insightsUrl, {}, "Failed to fetch Facebook ads insights");
       const insights = insightsData.data || [];
 
+      console.log('📊 [FACEBOOK-ADS] Insights fetched:', {
+        count: insights.length,
+        hasData: insights.length > 0
+      })
+
       // Step 3: Get demographic breakdowns
+      console.log('👥 [FACEBOOK-ADS] Fetching audience breakdowns...')
       const demographicInsights = await this.getAudienceBreakdowns(accountId, accessToken, timeRange);
+      console.log('✅ [FACEBOOK-ADS] Audience breakdowns fetched:', {
+        ageGroups: demographicInsights.ageGroups.length,
+        genders: demographicInsights.genders.length,
+        locations: demographicInsights.topLocations.length
+      })
 
       // Step 4: Get device and placement breakdowns
+      console.log('📱 [FACEBOOK-ADS] Fetching device/placement breakdowns...')
       const deviceInsights = await this.getDeviceAndPlacementBreakdowns(accountId, accessToken, timeRange);
+      console.log('✅ [FACEBOOK-ADS] Device breakdowns fetched')
 
       // Step 5: Process and aggregate comprehensive metrics
       const processedData = this.processComprehensiveInsights(insights);
+
+      console.log('✅ [FACEBOOK-ADS] Ads analytics calculated:', {
+        totalSpend: processedData.totalSpend,
+        totalImpressions: processedData.totalImpressions,
+        totalClicks: processedData.totalClicks,
+        totalConversions: processedData.totalConversions,
+        cpc: processedData.cpc,
+        cpm: processedData.cpm,
+        ctr: processedData.ctr,
+        hasTopAd: !!processedData.topAd,
+        spendTrendDays: processedData.spendTrend.length
+      })
 
       // Step 6: Merge all data sources and convert to expected format
       const enhancedAudienceInsights = this.convertToExpectedAudienceFormat(demographicInsights);
@@ -493,7 +652,7 @@ export class FacebookApiClient extends BaseApiClient {
       } as AdsAnalytics;
 
     } catch (error) {
-      console.error("Failed to fetch Facebook ads analytics:", error)
+      console.error("❌ [FACEBOOK-ADS] Failed to fetch ads analytics:", error)
       logger.error("Failed to fetch Facebook ads analytics", { error })
       throw new Error(`Failed to fetch Facebook ads analytics: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
@@ -1227,22 +1386,63 @@ export class FacebookApiClient extends BaseApiClient {
     }
   }
 
-  static async getPageData(accessToken: string) {
+  static async getPageData(
+    accessToken: string,
+    fallbackPageData?: {
+      id?: string
+      name?: string
+      fan_count?: number
+      category?: string
+      talking_about_count?: number
+      access_token?: string
+    }
+  ) {
     try {
+      console.log('🔍 [FACEBOOK-PAGE] Fetching page data...')
+
       // Get Facebook page information
       const pageInfo = await this.getFacebookPageInfo(accessToken);
 
       if (!pageInfo) {
+        console.warn('⚠️ [FACEBOOK-PAGE] No page info found from API')
+
+        // Use fallback data if available
+        if (fallbackPageData) {
+          console.log('✅ [FACEBOOK-PAGE] Using fallback page data from database:', {
+            id: fallbackPageData.id,
+            name: fallbackPageData.name,
+            fan_count: fallbackPageData.fan_count
+          })
+
+          return {
+            id: fallbackPageData.id || 'unknown',
+            name: fallbackPageData.name || 'Unknown Page',
+            fan_count: fallbackPageData.fan_count || 0,
+            checkins: 0,
+            followers_count: fallbackPageData.fan_count || 0,
+            about: '',
+            category: fallbackPageData.category || ''
+          };
+        }
+
         throw new Error("No Facebook page found. Please ensure you have a Facebook page with appropriate permissions.");
       }
 
       const { pageId, pageAccessToken } = pageInfo;
+      console.log('✅ [FACEBOOK-PAGE] Page info found:', { pageId, pageName: pageInfo.pageName })
 
       // Query Facebook page directly using page ID
       const fields = "id,name,fan_count,checkins,followers_count,about,category";
       const url = `${this.BASE_URL}/${pageId}?access_token=${pageAccessToken}&fields=${fields}`;
 
       const pageData = await this.makeRequest<any>(url, {}, "Failed to fetch Facebook page data");
+
+      console.log('✅ [FACEBOOK-PAGE] Page data fetched successfully:', {
+        id: pageData?.id,
+        name: pageData?.name,
+        fan_count: pageData?.fan_count,
+        category: pageData?.category
+      })
 
       return {
         id: pageData?.id || pageId,
@@ -1255,7 +1455,28 @@ export class FacebookApiClient extends BaseApiClient {
       };
 
     } catch (error) {
+      console.error('❌ [FACEBOOK-PAGE] Error fetching page data:', error)
       logger.error("Failed to fetch Facebook page data", { error });
+
+      // Use fallback data if available
+      if (fallbackPageData) {
+        console.log('✅ [FACEBOOK-PAGE] Using fallback page data after error:', {
+          id: fallbackPageData.id,
+          name: fallbackPageData.name,
+          fan_count: fallbackPageData.fan_count
+        })
+
+        return {
+          id: fallbackPageData.id || 'unknown',
+          name: fallbackPageData.name || 'Unknown Page',
+          fan_count: fallbackPageData.fan_count || 0,
+          checkins: 0,
+          followers_count: fallbackPageData.fan_count || 0,
+          about: '',
+          category: fallbackPageData.category || ''
+        };
+      }
+
       throw error;
     }
   }
