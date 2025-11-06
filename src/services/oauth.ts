@@ -1192,12 +1192,12 @@ export class OAuthService {
 
   static buildInstagramAuthUrl(state: string, redirectUri: string): string {
     // Instagram uses Facebook Business Login to access business accounts
-    // We use the same Facebook OAuth flow but with Instagram-specific scopes
+    // We use Instagram-specific scopes that include instagram_manage_insights
     const params = new URLSearchParams();
     params.append('client_id', env.FACEBOOK_APP_ID);
     params.append('redirect_uri', redirectUri);
     params.append('response_type', 'code');
-    params.append('scope', OAUTH_SCOPES.FACEBOOK); // Use Facebook scopes for business access
+    params.append('scope', OAUTH_SCOPES.INSTAGRAM); // Use Instagram scopes with analytics permissions
     params.append('state', state);
 
     const fullUrl = `https://www.facebook.com/v19.0/dialog/oauth?${params.toString()}`;
@@ -1206,7 +1206,7 @@ export class OAuthService {
     logger.info("Instagram auth URL generated", {
       redirectUri,
       hasClientId: !!env.FACEBOOK_APP_ID,
-      scope: OAUTH_SCOPES.FACEBOOK,
+      scope: OAUTH_SCOPES.INSTAGRAM,
       state: state
     });
 

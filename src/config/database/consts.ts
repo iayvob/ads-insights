@@ -21,12 +21,17 @@ export const OAUTH_SCOPES = {
         "pages_manage_metadata",
         "read_insights",
     ].join(","),
+    // Instagram uses Facebook Login for Business (not Instagram Login)
+    // Requires Page permissions, not instagram_manage_insights
+    // The "ANALYZE" task on the Facebook Page grants access to Instagram insights
     INSTAGRAM: [
         "instagram_basic",
-        "instagram_manage_insights", 
+        "instagram_content_publish",
         "pages_show_list",
         "pages_read_engagement",
+        "pages_manage_metadata",
         "business_management",
+        "read_insights",
     ].join(","),
     TWITTER: "tweet.read users.read like.read follows.read offline.access",
 } as const
