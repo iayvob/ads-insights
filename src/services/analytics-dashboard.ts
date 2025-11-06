@@ -236,72 +236,129 @@ export class AnalyticsDashboardService {
             // Instagram now uses Facebook Business Login with stored business account data
             logger.info("Processing Instagram analytics", {
               providerId: provider.id,
+              hasAccessToken: !!provider.accessToken,
+              accessTokenLength: provider.accessToken?.length,
               hasBusinessAccounts: !!provider.businessAccounts,
               businessAccountsType: typeof provider.businessAccounts,
-              businessAccountsRaw: provider.businessAccounts ? provider.businessAccounts.slice(0, 200) + '...' : 'null' // Log first 200 chars for debugging
             });
 
-            if (!provider.businessAccounts) {
-              const businessAccountError = new Error("Instagram Business account not connected") as Error & {
-                code?: string;
-                type?: string;
-                details?: any;
-              };
-              businessAccountError.code = "NO_BUSINESS_ACCOUNT";
-              businessAccountError.type = "no_business_account";
-              businessAccountError.details = {
-                message: "No business account data found. Please reconnect your Instagram Business account.",
-                helpUrl: "https://help.instagram.com/502981923235522"
-              };
-              throw businessAccountError;
+            console.log('🔍 [INSTAGRAM-DASHBOARD] Starting Instagram analytics fetch')
+            console.log('🔑 [INSTAGRAM-DASHBOARD] Access token:', provider.accessToken?.substring(0, 30) + '...')
+            console.log('📋 [INSTAGRAM-DASHBOARD] Provider businessAccounts:', {
+              exists: !!provider.businessAccounts,
+              type: typeof provider.businessAccounts,
+              length: typeof provider.businessAccounts === 'string'
+                ? provider.businessAccounts.length
+                : Array.isArray(provider.businessAccounts)
+                  ? provider.businessAccounts.length
+                  : 'not an array',
+              raw: provider.businessAccounts ?
+                (typeof provider.businessAccounts === 'string'
+                  ? provider.businessAccounts.substring(0, 200)
+                  : JSON.stringify(provider.businessAccounts).substring(0, 200))
+                : 'null'
+            })
+
+            // Parse businessAccounts to get fallback profile data
+            let fallbackProfileData: any = undefined
+            try {
+              console.log('🔍 [INSTAGRAM-DASHBOARD] Attempting to parse businessAccounts...')
+
+              if (provider.businessAccounts) {
+                let parsedData = typeof provider.businessAccounts === 'string'
+                  ? JSON.parse(provider.businessAccounts)
+                  : provider.businessAccounts
+
+                console.log('📊 [INSTAGRAM-DASHBOARD] Parsed businessAccounts:', {
+                  type: typeof parsedData,
+                  isArray: Array.isArray(parsedData),
+                  keys: typeof parsedData === 'object' && parsedData !== null ? Object.keys(parsedData) : 'N/A',
+                  hasBusinessAccountsProperty: parsedData && typeof parsedData === 'object' && 'business_accounts' in parsedData
+                })
+
+                // Extract the business_accounts array from the nested structure
+                // The OAuth callback stores it as: { business_accounts: [...], facebook_pages: [...] }
+                const businessAccounts = parsedData && typeof parsedData === 'object' && 'business_accounts' in parsedData
+                  ? parsedData.business_accounts
+                  : (Array.isArray(parsedData) ? parsedData : null)
+
+                console.log('📊 [INSTAGRAM-DASHBOARD] Extracted business accounts array:', {
+                  isArray: Array.isArray(businessAccounts),
+                  length: Array.isArray(businessAccounts) ? businessAccounts.length : 'not array',
+                  firstAccountKeys: Array.isArray(businessAccounts) && businessAccounts[0]
+                    ? Object.keys(businessAccounts[0])
+                    : 'no first account'
+                })
+
+                // Get the first Instagram business account as fallback
+                const firstAccount = Array.isArray(businessAccounts) && businessAccounts.length > 0 ? businessAccounts[0] : null
+                if (firstAccount) {
+                  fallbackProfileData = {
+                    username: firstAccount.username,
+                    followers_count: firstAccount.followers_count,
+                    media_count: firstAccount.media_count,
+                    biography: firstAccount.biography,
+                    website: firstAccount.website,
+                    profile_picture_url: firstAccount.profile_picture_url
+                  }
+                  console.log('✅ [INSTAGRAM-DASHBOARD] Successfully extracted fallback profile data:', {
+                    username: fallbackProfileData.username,
+                    followers: fallbackProfileData.followers_count,
+                    media: fallbackProfileData.media_count
+                  })
+                } else {
+                  console.warn('⚠️ [INSTAGRAM-DASHBOARD] No first account found in businessAccounts')
+                }
+              } else {
+                console.warn('⚠️ [INSTAGRAM-DASHBOARD] provider.businessAccounts is null/undefined')
+              }
+            } catch (parseError) {
+              console.error('❌ [INSTAGRAM-DASHBOARD] Error parsing businessAccounts:', parseError)
+              console.error('❌ [INSTAGRAM-DASHBOARD] Raw businessAccounts value:', provider.businessAccounts)
             }
 
-            const businessData = JSON.parse(provider.businessAccounts || '{}')
-            const businessAccounts = businessData.business_accounts || []
+            // Call the actual Instagram API with the provider's access token
+            // InstagramApiClient.fetchAnalytics() already returns InstagramAnalytics format
+            const instagramData = await InstagramApiClient.fetchAnalytics(
+              provider.accessToken || '',
+              includeAds,
+              fallbackProfileData // Pass fallback data for when profile API fails
+            )
 
-            logger.info("Parsed Instagram business data", {
+            console.log('✅ [INSTAGRAM-DASHBOARD] Instagram API response:', {
+              hasProfile: !!instagramData.profile,
+              hasPosts: !!instagramData.posts,
+              hasAds: !!instagramData.ads,
+              totalPosts: instagramData.posts?.totalPosts,
+              avgEngagement: instagramData.posts?.avgEngagement,
+              profileUsername: instagramData.profile?.username
+            })
+
+            logger.info("Instagram analytics fetched from API", {
               providerId: provider.id,
-              businessAccountsCount: businessAccounts.length,
-              businessDataKeys: Object.keys(businessData),
-              firstAccountId: businessAccounts[0]?.id
-            });
+              hasProfile: !!instagramData.profile,
+              hasPosts: !!instagramData.posts,
+              hasAds: !!instagramData.ads,
+              totalPosts: instagramData.posts?.totalPosts,
+              avgEngagement: instagramData.posts?.avgEngagement,
+              profileUsername: instagramData.profile?.username
+            })
 
-            if (businessAccounts.length === 0) {
-              const businessAccountError = new Error("Instagram Business account not connected") as Error & {
-                code?: string;
-                type?: string;
-                details?: any;
-              };
-              businessAccountError.code = "NO_BUSINESS_ACCOUNT";
-              businessAccountError.type = "no_business_account";
-              businessAccountError.details = {
-                message: "To view Instagram insights, convert your Instagram account to a Business account and connect it to a Facebook page.",
-                helpUrl: "https://help.instagram.com/502981923235522"
-              };
-              throw businessAccountError;
+            // ✅ InstagramApiClient.fetchAnalytics() ALREADY returns InstagramAnalytics format
+            // NO TRANSFORMATION NEEDED - data is already structured correctly!
+            // Return InstagramAnalytics format directly
+            return {
+              posts: instagramData.posts,
+              ads: instagramData.ads, // Already null if no ads, don't generate fake data
+              lastUpdated: instagramData.lastUpdated,
+              profile: instagramData.profile
             }
-
-            // Use stored business account data to create analytics
-            const primaryAccount = businessAccounts[0]
-            const mockInstagramData = {
-              profile: {
-                id: primaryAccount.id,
-                username: primaryAccount.username,
-                account_type: 'BUSINESS',
-                media_count: primaryAccount.media_count || 0,
-                followers_count: primaryAccount.followers_count || 0,
-                follows_count: primaryAccount.follows_count || 0,
-              },
-              insights: {
-                reach: Math.floor((primaryAccount.followers_count || 0) * 0.1), // Estimate 10% reach
-                impressions: Math.floor((primaryAccount.followers_count || 0) * 0.15), // Estimate 15% impressions
-                profile_views: Math.floor((primaryAccount.followers_count || 0) * 0.05), // Estimate 5% profile views
-              },
-              media: [] // Would need separate API call to get actual media
-            }
-
-            return AnalyticsAdapter.transformInstagramData(mockInstagramData, includeAds)
           } catch (error: any) {
+            console.error('❌ [INSTAGRAM-DASHBOARD] Error:', error)
+            logger.error("Failed to fetch Instagram analytics", {
+              error: error.message,
+              stack: error.stack
+            })
             // Handle Instagram Business account specific errors
             if (error.code === "NO_BUSINESS_ACCOUNT" || error.message?.includes("Instagram Business account")) {
               const businessAccountError = new Error("Instagram Business account not connected") as Error & {
