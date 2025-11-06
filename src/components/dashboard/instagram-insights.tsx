@@ -564,9 +564,13 @@ export function InstagramInsights({
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={topLocationsData} layout="horizontal">
                   <XAxis type="number" />
-                  <YAxis dataKey="name" type="category" width={60} />
+                  <YAxis dataKey="name" type="category" width={80} />
                   <ChartTooltip content={<ChartTooltipContent />} />
-                  <Bar dataKey="value" fill="#3b82f6" />
+                  <Bar dataKey="value" radius={[0, 8, 8, 0]}>
+                    {topLocationsData.map((entry, index) => (
+                      <Cell key={`location-${index}`} fill={entry.color} />
+                    ))}
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
             </ChartContainer>
@@ -691,484 +695,586 @@ export function InstagramInsights({
       {/* Enhanced Instagram Ads Analytics for Premium Users */}
       {canAccessAds && ads && (
         <>
-          {/* Ads Overview Cards */}
-          <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
-            <CardHeader>
-              <CardTitle className="flex items-center space-x-2">
-                <span>Instagram Ads Performance Overview</span>
-                <Badge
-                  variant="default"
-                  className="bg-purple-100 text-purple-800"
-                >
-                  Premium
-                </Badge>
-              </CardTitle>
-              <CardDescription>
-                Key advertising campaign metrics
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid gap-6 md:grid-cols-4 mb-6">
-                <MetricCard
-                  title="Total Spend"
-                  value={`$${(ads.totalSpend || 0).toFixed(2)}`}
-                  icon={TrendingUp}
-                  trend={0}
-                  description="Campaign budget"
-                />
-                <MetricCard
-                  title="Total Reach"
-                  value={(ads.totalReach || 0).toLocaleString()}
-                  icon={Eye}
-                  trend={0}
-                  description="People reached"
-                />
-                <MetricCard
-                  title="Total Clicks"
-                  value={(ads.totalClicks || 0).toLocaleString()}
-                  icon={MousePointer}
-                  trend={0}
-                  description="Link clicks"
-                />
-                <MetricCard
-                  title="ROAS"
-                  value={`${ads.roas || 0}x`}
-                  icon={TrendingUp}
-                  trend={(ads.roas || 0) > 1 ? 10 : 0}
-                  description="Return on ad spend"
-                />
-              </div>
-              <div className="grid gap-4 md:grid-cols-3">
-                <div className="text-center p-4 bg-gray-50 rounded-lg">
-                  <div className="text-2xl font-bold text-gray-900">
-                    ${(ads.cpc || 0).toFixed(2)}
-                  </div>
-                  <div className="text-sm text-gray-500">Cost per Click</div>
+          {/* Check if ads has error state (no ads) */}
+          {ads.error ? (
+            <Card className="bg-amber-50/80 backdrop-blur-sm border-amber-200 shadow-lg">
+              <CardHeader className="text-center">
+                <div className="mx-auto w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mb-4">
+                  <AlertTriangle className="w-8 h-8 text-amber-600" />
                 </div>
-                <div className="text-center p-4 bg-gray-50 rounded-lg">
-                  <div className="text-2xl font-bold text-gray-900">
-                    ${(ads.cpm || 0).toFixed(2)}
-                  </div>
-                  <div className="text-sm text-gray-500">
-                    Cost per 1000 Impressions
-                  </div>
-                </div>
-                <div className="text-center p-4 bg-gray-50 rounded-lg">
-                  <div className="text-2xl font-bold text-gray-900">
-                    {(ads.ctr || 0).toFixed(2)}%
-                  </div>
-                  <div className="text-sm text-gray-500">
-                    Click-through Rate
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Instagram-Specific Placement Performance */}
-          {ads.instagramSpecificMetrics && (
-            <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
-              <CardHeader>
-                <CardTitle>Instagram Placement Performance</CardTitle>
-                <CardDescription>
-                  Performance breakdown by Instagram ad placement
+                <CardTitle className="text-amber-900">
+                  {ads.error.type === 'no_ads'
+                    ? 'No Instagram Ads Found'
+                    : 'Ads Data Unavailable'}
+                </CardTitle>
+                <CardDescription className="text-amber-700 text-base mt-2">
+                  {ads.error.message}
                 </CardDescription>
               </CardHeader>
-              <CardContent>
-                <div className="grid gap-6 md:grid-cols-2">
-                  {/* Stories Performance */}
-                  <div className="space-y-4">
-                    <h4 className="font-semibold text-gray-900">
-                      Stories Performance
-                    </h4>
-                    <div className="grid gap-3">
-                      <div className="flex justify-between items-center p-3 bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg">
-                        <span className="text-sm font-medium">Impressions</span>
-                        <span className="font-bold">
-                          {(
-                            ads.instagramSpecificMetrics?.storiesImpressions ||
-                            0
-                          ).toLocaleString()}
-                        </span>
-                      </div>
-                      <div className="flex justify-between items-center p-3 bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg">
-                        <span className="text-sm font-medium">Reach</span>
-                        <span className="font-bold">
-                          {(
-                            ads.instagramSpecificMetrics?.storiesReach || 0
-                          ).toLocaleString()}
-                        </span>
-                      </div>
-                      <div className="flex justify-between items-center p-3 bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg">
-                        <span className="text-sm font-medium">CTR</span>
-                        <span className="font-bold">
-                          {(
-                            ads.instagramSpecificMetrics?.storiesCtr || 0
-                          ).toFixed(2)}
-                          %
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Feed Performance */}
-                  <div className="space-y-4">
-                    <h4 className="font-semibold text-gray-900">
-                      Feed Performance
-                    </h4>
-                    <div className="grid gap-3">
-                      <div className="flex justify-between items-center p-3 bg-gradient-to-r from-blue-50 to-cyan-50 rounded-lg">
-                        <span className="text-sm font-medium">Impressions</span>
-                        <span className="font-bold">
-                          {(
-                            ads.instagramSpecificMetrics?.feedImpressions || 0
-                          ).toLocaleString()}
-                        </span>
-                      </div>
-                      <div className="flex justify-between items-center p-3 bg-gradient-to-r from-blue-50 to-cyan-50 rounded-lg">
-                        <span className="text-sm font-medium">Reach</span>
-                        <span className="font-bold">
-                          {(
-                            ads.instagramSpecificMetrics?.feedReach || 0
-                          ).toLocaleString()}
-                        </span>
-                      </div>
-                      <div className="flex justify-between items-center p-3 bg-gradient-to-r from-blue-50 to-cyan-50 rounded-lg">
-                        <span className="text-sm font-medium">CTR</span>
-                        <span className="font-bold">
-                          {(ads.instagramSpecificMetrics?.feedCtr || 0).toFixed(
-                            2
-                          )}
-                          %
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Reels Performance */}
-                  <div className="space-y-4">
-                    <h4 className="font-semibold text-gray-900">
-                      Reels Performance
-                    </h4>
-                    <div className="grid gap-3">
-                      <div className="flex justify-between items-center p-3 bg-gradient-to-r from-pink-50 to-rose-50 rounded-lg">
-                        <span className="text-sm font-medium">Impressions</span>
-                        <span className="font-bold">
-                          {(
-                            ads.instagramSpecificMetrics?.reelsImpressions || 0
-                          ).toLocaleString()}
-                        </span>
-                      </div>
-                      <div className="flex justify-between items-center p-3 bg-gradient-to-r from-pink-50 to-rose-50 rounded-lg">
-                        <span className="text-sm font-medium">Reach</span>
-                        <span className="font-bold">
-                          {(
-                            ads.instagramSpecificMetrics?.reelsReach || 0
-                          ).toLocaleString()}
-                        </span>
-                      </div>
-                      <div className="flex justify-between items-center p-3 bg-gradient-to-r from-pink-50 to-rose-50 rounded-lg">
-                        <span className="text-sm font-medium">CTR</span>
-                        <span className="font-bold">
-                          {(
-                            ads.instagramSpecificMetrics?.reelsCtr || 0
-                          ).toFixed(2)}
-                          %
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Instagram Actions */}
-                  <div className="space-y-4">
-                    <h4 className="font-semibold text-gray-900">
-                      Instagram Actions
-                    </h4>
-                    <div className="grid gap-3">
-                      <div className="flex justify-between items-center p-3 bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg">
-                        <span className="text-sm font-medium">
-                          Profile Visits
-                        </span>
-                        <span className="font-bold">
-                          {(
-                            ads.instagramActions?.profileVisits || 0
-                          ).toLocaleString()}
-                        </span>
-                      </div>
-                      <div className="flex justify-between items-center p-3 bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg">
-                        <span className="text-sm font-medium">
-                          Website Clicks
-                        </span>
-                        <span className="font-bold">
-                          {(
-                            ads.instagramActions?.websiteClicks || 0
-                          ).toLocaleString()}
-                        </span>
-                      </div>
-                      <div className="flex justify-between items-center p-3 bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg">
-                        <span className="text-sm font-medium">
-                          Page Follows
-                        </span>
-                        <span className="font-bold">
-                          {(
-                            ads.instagramActions?.pageFollows || 0
-                          ).toLocaleString()}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
+              <CardContent className="text-center space-y-4">
+                <div className="space-y-2 text-sm text-gray-700">
+                  <p className="font-semibold">
+                    Start advertising on Instagram to:
+                  </p>
+                  <ul className="text-left space-y-1 max-w-md mx-auto">
+                    <li>
+                      • Reach targeted audiences based on demographics and
+                      interests
+                    </li>
+                    <li>
+                      • Track campaign performance with detailed analytics
+                    </li>
+                    <li>• Increase brand awareness and drive conversions</li>
+                    <li>
+                      • Access Instagram Stories, Feed, and Reels placements
+                    </li>
+                  </ul>
+                </div>
+                <div className="flex gap-3 justify-center pt-4">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      window.open(
+                        'https://www.facebook.com/business/help/203539221057548',
+                        '_blank'
+                      )
+                    }
+                  >
+                    <ExternalLink className="w-4 h-4 mr-2" />
+                    Learn About Instagram Ads
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() =>
+                      window.open(
+                        'https://business.facebook.com/adsmanager',
+                        '_blank'
+                      )
+                    }
+                  >
+                    Create Your First Ad
+                  </Button>
                 </div>
               </CardContent>
             </Card>
-          )}
-
-          {/* Creative Performance */}
-          {ads.creativePerformance && ads.creativePerformance.length > 0 && (
-            <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
-              <CardHeader>
-                <CardTitle>Creative Performance Analysis</CardTitle>
-                <CardDescription>
-                  Top performing Instagram ad creatives
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {ads.creativePerformance?.map((creative, index) => (
-                    <div
-                      key={creative.id}
-                      className="p-4 border rounded-lg bg-gradient-to-r from-gray-50 to-white"
+          ) : (
+            <>
+              {/* Existing ads analytics display */}
+              {/* Ads Overview Cards */}
+              <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
+                <CardHeader>
+                  <CardTitle className="flex items-center space-x-2">
+                    <span>Instagram Ads Performance Overview</span>
+                    <Badge
+                      variant="default"
+                      className="bg-purple-100 text-purple-800"
                     >
-                      <div className="flex justify-between items-start mb-3">
-                        <div>
-                          <h5 className="font-semibold">{creative.name}</h5>
-                          <Badge variant="secondary" className="text-xs">
-                            {creative.type}
-                          </Badge>
-                        </div>
-                        <div className="text-right">
-                          <div className="text-lg font-bold text-green-600">
-                            {creative.roas || 0}x ROAS
+                      Premium
+                    </Badge>
+                  </CardTitle>
+                  <CardDescription>
+                    Key advertising campaign metrics
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid gap-6 md:grid-cols-4 mb-6">
+                    <MetricCard
+                      title="Total Spend"
+                      value={`$${(ads.totalSpend || 0).toFixed(2)}`}
+                      icon={TrendingUp}
+                      trend={0}
+                      description="Campaign budget"
+                    />
+                    <MetricCard
+                      title="Total Reach"
+                      value={(ads.totalReach || 0).toLocaleString()}
+                      icon={Eye}
+                      trend={0}
+                      description="People reached"
+                    />
+                    <MetricCard
+                      title="Total Clicks"
+                      value={(ads.totalClicks || 0).toLocaleString()}
+                      icon={MousePointer}
+                      trend={0}
+                      description="Link clicks"
+                    />
+                    <MetricCard
+                      title="ROAS"
+                      value={`${ads.roas || 0}x`}
+                      icon={TrendingUp}
+                      trend={(ads.roas || 0) > 1 ? 10 : 0}
+                      description="Return on ad spend"
+                    />
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <div className="text-center p-4 bg-gray-50 rounded-lg">
+                      <div className="text-2xl font-bold text-gray-900">
+                        ${(ads.cpc || 0).toFixed(2)}
+                      </div>
+                      <div className="text-sm text-gray-500">
+                        Cost per Click
+                      </div>
+                    </div>
+                    <div className="text-center p-4 bg-gray-50 rounded-lg">
+                      <div className="text-2xl font-bold text-gray-900">
+                        ${(ads.cpm || 0).toFixed(2)}
+                      </div>
+                      <div className="text-sm text-gray-500">
+                        Cost per 1000 Impressions
+                      </div>
+                    </div>
+                    <div className="text-center p-4 bg-gray-50 rounded-lg">
+                      <div className="text-2xl font-bold text-gray-900">
+                        {(ads.ctr || 0).toFixed(2)}%
+                      </div>
+                      <div className="text-sm text-gray-500">
+                        Click-through Rate
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Instagram-Specific Placement Performance */}
+              {ads.instagramSpecificMetrics && (
+                <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
+                  <CardHeader>
+                    <CardTitle>Instagram Placement Performance</CardTitle>
+                    <CardDescription>
+                      Performance breakdown by Instagram ad placement
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid gap-6 md:grid-cols-2">
+                      {/* Stories Performance */}
+                      <div className="space-y-4">
+                        <h4 className="font-semibold text-gray-900">
+                          Stories Performance
+                        </h4>
+                        <div className="grid gap-3">
+                          <div className="flex justify-between items-center p-3 bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg">
+                            <span className="text-sm font-medium">
+                              Impressions
+                            </span>
+                            <span className="font-bold">
+                              {(
+                                ads.instagramSpecificMetrics
+                                  ?.storiesImpressions || 0
+                              ).toLocaleString()}
+                            </span>
                           </div>
-                          <div className="text-sm text-gray-500">
-                            ${(creative.spend || 0).toFixed(2)} spent
+                          <div className="flex justify-between items-center p-3 bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg">
+                            <span className="text-sm font-medium">Reach</span>
+                            <span className="font-bold">
+                              {(
+                                ads.instagramSpecificMetrics?.storiesReach || 0
+                              ).toLocaleString()}
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center p-3 bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg">
+                            <span className="text-sm font-medium">CTR</span>
+                            <span className="font-bold">
+                              {(
+                                ads.instagramSpecificMetrics?.storiesCtr || 0
+                              ).toFixed(2)}
+                              %
+                            </span>
                           </div>
                         </div>
                       </div>
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
-                        <div>
-                          <div className="text-lg font-semibold">
-                            {(creative.impressions || 0).toLocaleString()}
+
+                      {/* Feed Performance */}
+                      <div className="space-y-4">
+                        <h4 className="font-semibold text-gray-900">
+                          Feed Performance
+                        </h4>
+                        <div className="grid gap-3">
+                          <div className="flex justify-between items-center p-3 bg-gradient-to-r from-blue-50 to-cyan-50 rounded-lg">
+                            <span className="text-sm font-medium">
+                              Impressions
+                            </span>
+                            <span className="font-bold">
+                              {(
+                                ads.instagramSpecificMetrics?.feedImpressions ||
+                                0
+                              ).toLocaleString()}
+                            </span>
                           </div>
-                          <div className="text-xs text-gray-500">
-                            Impressions
+                          <div className="flex justify-between items-center p-3 bg-gradient-to-r from-blue-50 to-cyan-50 rounded-lg">
+                            <span className="text-sm font-medium">Reach</span>
+                            <span className="font-bold">
+                              {(
+                                ads.instagramSpecificMetrics?.feedReach || 0
+                              ).toLocaleString()}
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center p-3 bg-gradient-to-r from-blue-50 to-cyan-50 rounded-lg">
+                            <span className="text-sm font-medium">CTR</span>
+                            <span className="font-bold">
+                              {(
+                                ads.instagramSpecificMetrics?.feedCtr || 0
+                              ).toFixed(2)}
+                              %
+                            </span>
                           </div>
                         </div>
-                        <div>
-                          <div className="text-lg font-semibold">
-                            {(creative.clicks || 0).toLocaleString()}
+                      </div>
+
+                      {/* Reels Performance */}
+                      <div className="space-y-4">
+                        <h4 className="font-semibold text-gray-900">
+                          Reels Performance
+                        </h4>
+                        <div className="grid gap-3">
+                          <div className="flex justify-between items-center p-3 bg-gradient-to-r from-pink-50 to-rose-50 rounded-lg">
+                            <span className="text-sm font-medium">
+                              Impressions
+                            </span>
+                            <span className="font-bold">
+                              {(
+                                ads.instagramSpecificMetrics
+                                  ?.reelsImpressions || 0
+                              ).toLocaleString()}
+                            </span>
                           </div>
-                          <div className="text-xs text-gray-500">Clicks</div>
+                          <div className="flex justify-between items-center p-3 bg-gradient-to-r from-pink-50 to-rose-50 rounded-lg">
+                            <span className="text-sm font-medium">Reach</span>
+                            <span className="font-bold">
+                              {(
+                                ads.instagramSpecificMetrics?.reelsReach || 0
+                              ).toLocaleString()}
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center p-3 bg-gradient-to-r from-pink-50 to-rose-50 rounded-lg">
+                            <span className="text-sm font-medium">CTR</span>
+                            <span className="font-bold">
+                              {(
+                                ads.instagramSpecificMetrics?.reelsCtr || 0
+                              ).toFixed(2)}
+                              %
+                            </span>
+                          </div>
                         </div>
-                        <div>
-                          <div className="text-lg font-semibold">
-                            {(creative.ctr || 0).toFixed(2)}%
+                      </div>
+
+                      {/* Instagram Actions */}
+                      <div className="space-y-4">
+                        <h4 className="font-semibold text-gray-900">
+                          Instagram Actions
+                        </h4>
+                        <div className="grid gap-3">
+                          <div className="flex justify-between items-center p-3 bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg">
+                            <span className="text-sm font-medium">
+                              Profile Visits
+                            </span>
+                            <span className="font-bold">
+                              {(
+                                ads.instagramActions?.profileVisits || 0
+                              ).toLocaleString()}
+                            </span>
                           </div>
-                          <div className="text-xs text-gray-500">CTR</div>
-                        </div>
-                        <div>
-                          <div className="text-lg font-semibold">
-                            {creative.conversions || 0}
+                          <div className="flex justify-between items-center p-3 bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg">
+                            <span className="text-sm font-medium">
+                              Website Clicks
+                            </span>
+                            <span className="font-bold">
+                              {(
+                                ads.instagramActions?.websiteClicks || 0
+                              ).toLocaleString()}
+                            </span>
                           </div>
-                          <div className="text-xs text-gray-500">
-                            Conversions
+                          <div className="flex justify-between items-center p-3 bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg">
+                            <span className="text-sm font-medium">
+                              Page Follows
+                            </span>
+                            <span className="font-bold">
+                              {(
+                                ads.instagramActions?.pageFollows || 0
+                              ).toLocaleString()}
+                            </span>
                           </div>
                         </div>
                       </div>
                     </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
+                  </CardContent>
+                </Card>
+              )}
 
-          {/* Conversion Metrics */}
-          <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
-            <CardHeader>
-              <CardTitle>Conversion Tracking</CardTitle>
-              <CardDescription>
-                Instagram ads conversion performance
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid gap-4 md:grid-cols-3">
-                <div className="text-center p-4 bg-gradient-to-br from-green-50 to-emerald-100 rounded-lg">
-                  <div className="text-2xl font-bold text-green-700">
-                    {ads.conversionMetrics?.purchases?.count || 0}
-                  </div>
-                  <div className="text-sm text-green-600 mb-1">Purchases</div>
-                  <div className="text-xs text-gray-500">
-                    ${(ads.conversionMetrics?.purchases?.value || 0).toFixed(2)}{' '}
-                    revenue
-                  </div>
-                </div>
-                <div className="text-center p-4 bg-gradient-to-br from-blue-50 to-cyan-100 rounded-lg">
-                  <div className="text-2xl font-bold text-blue-700">
-                    {ads.conversionMetrics?.addToCart?.count || 0}
-                  </div>
-                  <div className="text-sm text-blue-600 mb-1">Add to Cart</div>
-                  <div className="text-xs text-gray-500">
-                    ${(ads.conversionMetrics?.addToCart?.value || 0).toFixed(2)}{' '}
-                    value
-                  </div>
-                </div>
-                <div className="text-center p-4 bg-gradient-to-br from-purple-50 to-violet-100 rounded-lg">
-                  <div className="text-2xl font-bold text-purple-700">
-                    {ads.conversionMetrics?.lead?.count || 0}
-                  </div>
-                  <div className="text-sm text-purple-600 mb-1">Leads</div>
-                  <div className="text-xs text-gray-500">
-                    ${(ads.conversionMetrics?.lead?.value || 0).toFixed(2)}{' '}
-                    value
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Audience Demographics */}
-          {ads.adsAudienceInsights && (
-            <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
-              <CardHeader>
-                <CardTitle>Audience Demographics</CardTitle>
-                <CardDescription>
-                  Instagram ads audience insights with ROAS breakdown
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="grid gap-6 md:grid-cols-2">
-                  {/* Age Groups with ROAS */}
-                  <div>
-                    <h4 className="font-semibold mb-4">
-                      Age Groups Performance
-                    </h4>
-                    <div className="space-y-3">
-                      {ads.adsAudienceInsights?.ageGroups?.map(
-                        (group, index) => {
-                          const colorClass = getAgeGroupColorClass(group.range);
-                          return (
-                            <div
-                              key={group.range}
-                              className={`flex justify-between items-center p-3 rounded-lg border-l-4 ${colorClass}`}
-                            >
+              {/* Creative Performance */}
+              {ads.creativePerformance &&
+                ads.creativePerformance.length > 0 && (
+                  <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
+                    <CardHeader>
+                      <CardTitle>Creative Performance Analysis</CardTitle>
+                      <CardDescription>
+                        Top performing Instagram ad creatives
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-4">
+                        {ads.creativePerformance?.map((creative, index) => (
+                          <div
+                            key={creative.id}
+                            className="p-4 border rounded-lg bg-gradient-to-r from-gray-50 to-white"
+                          >
+                            <div className="flex justify-between items-start mb-3">
                               <div>
-                                <span className="font-medium">
-                                  {group.range}
-                                </span>
-                                <div className="text-sm text-gray-500">
-                                  ${(group.spend || 0).toFixed(2)} spent
-                                </div>
+                                <h5 className="font-semibold">
+                                  {creative.name}
+                                </h5>
+                                <Badge variant="secondary" className="text-xs">
+                                  {creative.type}
+                                </Badge>
                               </div>
                               <div className="text-right">
-                                <div className="font-bold">
-                                  {group.percentage || 0}%
+                                <div className="text-lg font-bold text-green-600">
+                                  {creative.roas || 0}x ROAS
                                 </div>
-                                <div className="text-sm text-green-600 font-medium">
-                                  {(group.roas || 0).toFixed(1)}x ROAS
+                                <div className="text-sm text-gray-500">
+                                  ${(creative.spend || 0).toFixed(2)} spent
                                 </div>
                               </div>
                             </div>
-                          );
-                        }
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Gender Performance */}
-                  <div>
-                    <h4 className="font-semibold mb-4">Gender Performance</h4>
-                    <div className="space-y-3">
-                      {ads.adsAudienceInsights?.genders?.map(
-                        (gender, index) => {
-                          const colorClass = getGenderColorClass(gender.gender);
-                          return (
-                            <div
-                              key={gender.gender}
-                              className={`flex justify-between items-center p-3 rounded-lg border-l-4 ${colorClass}`}
-                            >
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
                               <div>
-                                <span className="font-medium">
-                                  {gender.gender}
-                                </span>
-                                <div className="text-sm text-gray-500">
-                                  ${(gender.spend || 0).toFixed(2)} spent
+                                <div className="text-lg font-semibold">
+                                  {(creative.impressions || 0).toLocaleString()}
+                                </div>
+                                <div className="text-xs text-gray-500">
+                                  Impressions
                                 </div>
                               </div>
-                              <div className="text-right">
-                                <div className="font-bold">
-                                  {gender.percentage || 0}%
+                              <div>
+                                <div className="text-lg font-semibold">
+                                  {(creative.clicks || 0).toLocaleString()}
                                 </div>
-                                <div className="text-sm text-green-600 font-medium">
-                                  {(gender.roas || 0).toFixed(1)}x ROAS
+                                <div className="text-xs text-gray-500">
+                                  Clicks
+                                </div>
+                              </div>
+                              <div>
+                                <div className="text-lg font-semibold">
+                                  {(creative.ctr || 0).toFixed(2)}%
+                                </div>
+                                <div className="text-xs text-gray-500">CTR</div>
+                              </div>
+                              <div>
+                                <div className="text-lg font-semibold">
+                                  {creative.conversions || 0}
+                                </div>
+                                <div className="text-xs text-gray-500">
+                                  Conversions
                                 </div>
                               </div>
                             </div>
-                          );
-                        }
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
+                          </div>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
 
-          {/* Video Metrics (if available) */}
-          {ads.videoMetrics && ads.videoMetrics.videoViews > 0 && (
-            <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
-              <CardHeader>
-                <CardTitle>Video Performance</CardTitle>
-                <CardDescription>
-                  Instagram video ads engagement metrics
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="grid gap-4 md:grid-cols-4">
-                  <div className="text-center p-4 bg-gradient-to-br from-red-50 to-pink-100 rounded-lg">
-                    <div className="text-2xl font-bold text-red-700">
-                      {ads.videoMetrics?.videoViews?.toLocaleString() || '0'}
+              {/* Conversion Metrics */}
+              <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
+                <CardHeader>
+                  <CardTitle>Conversion Tracking</CardTitle>
+                  <CardDescription>
+                    Instagram ads conversion performance
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <div className="text-center p-4 bg-gradient-to-br from-green-50 to-emerald-100 rounded-lg">
+                      <div className="text-2xl font-bold text-green-700">
+                        {ads.conversionMetrics?.purchases?.count || 0}
+                      </div>
+                      <div className="text-sm text-green-600 mb-1">
+                        Purchases
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        $
+                        {(ads.conversionMetrics?.purchases?.value || 0).toFixed(
+                          2
+                        )}{' '}
+                        revenue
+                      </div>
                     </div>
-                    <div className="text-sm text-red-600">Video Views</div>
+                    <div className="text-center p-4 bg-gradient-to-br from-blue-50 to-cyan-100 rounded-lg">
+                      <div className="text-2xl font-bold text-blue-700">
+                        {ads.conversionMetrics?.addToCart?.count || 0}
+                      </div>
+                      <div className="text-sm text-blue-600 mb-1">
+                        Add to Cart
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        $
+                        {(ads.conversionMetrics?.addToCart?.value || 0).toFixed(
+                          2
+                        )}{' '}
+                        value
+                      </div>
+                    </div>
+                    <div className="text-center p-4 bg-gradient-to-br from-purple-50 to-violet-100 rounded-lg">
+                      <div className="text-2xl font-bold text-purple-700">
+                        {ads.conversionMetrics?.lead?.count || 0}
+                      </div>
+                      <div className="text-sm text-purple-600 mb-1">Leads</div>
+                      <div className="text-xs text-gray-500">
+                        ${(ads.conversionMetrics?.lead?.value || 0).toFixed(2)}{' '}
+                        value
+                      </div>
+                    </div>
                   </div>
-                  <div className="text-center p-4 bg-gradient-to-br from-orange-50 to-yellow-100 rounded-lg">
-                    <div className="text-2xl font-bold text-orange-700">
-                      {ads.videoMetrics?.videoWatches25Percent?.toLocaleString() ||
-                        '0'}
+                </CardContent>
+              </Card>
+
+              {/* Audience Demographics */}
+              {ads.adsAudienceInsights && (
+                <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
+                  <CardHeader>
+                    <CardTitle>Audience Demographics</CardTitle>
+                    <CardDescription>
+                      Instagram ads audience insights with ROAS breakdown
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid gap-6 md:grid-cols-2">
+                      {/* Age Groups with ROAS */}
+                      <div>
+                        <h4 className="font-semibold mb-4">
+                          Age Groups Performance
+                        </h4>
+                        <div className="space-y-3">
+                          {ads.adsAudienceInsights?.ageGroups?.map(
+                            (group, index) => {
+                              const colorClass = getAgeGroupColorClass(
+                                group.range
+                              );
+                              return (
+                                <div
+                                  key={group.range}
+                                  className={`flex justify-between items-center p-3 rounded-lg border-l-4 ${colorClass}`}
+                                >
+                                  <div>
+                                    <span className="font-medium">
+                                      {group.range}
+                                    </span>
+                                    <div className="text-sm text-gray-500">
+                                      ${(group.spend || 0).toFixed(2)} spent
+                                    </div>
+                                  </div>
+                                  <div className="text-right">
+                                    <div className="font-bold">
+                                      {group.percentage || 0}%
+                                    </div>
+                                    <div className="text-sm text-green-600 font-medium">
+                                      {(group.roas || 0).toFixed(1)}x ROAS
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            }
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Gender Performance */}
+                      <div>
+                        <h4 className="font-semibold mb-4">
+                          Gender Performance
+                        </h4>
+                        <div className="space-y-3">
+                          {ads.adsAudienceInsights?.genders?.map(
+                            (gender, index) => {
+                              const colorClass = getGenderColorClass(
+                                gender.gender
+                              );
+                              return (
+                                <div
+                                  key={gender.gender}
+                                  className={`flex justify-between items-center p-3 rounded-lg border-l-4 ${colorClass}`}
+                                >
+                                  <div>
+                                    <span className="font-medium">
+                                      {gender.gender}
+                                    </span>
+                                    <div className="text-sm text-gray-500">
+                                      ${(gender.spend || 0).toFixed(2)} spent
+                                    </div>
+                                  </div>
+                                  <div className="text-right">
+                                    <div className="font-bold">
+                                      {gender.percentage || 0}%
+                                    </div>
+                                    <div className="text-sm text-green-600 font-medium">
+                                      {(gender.roas || 0).toFixed(1)}x ROAS
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            }
+                          )}
+                        </div>
+                      </div>
                     </div>
-                    <div className="text-sm text-orange-600">
-                      25% Completion
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Video Metrics (if available) */}
+              {ads.videoMetrics && ads.videoMetrics.videoViews > 0 && (
+                <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
+                  <CardHeader>
+                    <CardTitle>Video Performance</CardTitle>
+                    <CardDescription>
+                      Instagram video ads engagement metrics
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid gap-4 md:grid-cols-4">
+                      <div className="text-center p-4 bg-gradient-to-br from-red-50 to-pink-100 rounded-lg">
+                        <div className="text-2xl font-bold text-red-700">
+                          {ads.videoMetrics?.videoViews?.toLocaleString() ||
+                            '0'}
+                        </div>
+                        <div className="text-sm text-red-600">Video Views</div>
+                      </div>
+                      <div className="text-center p-4 bg-gradient-to-br from-orange-50 to-yellow-100 rounded-lg">
+                        <div className="text-2xl font-bold text-orange-700">
+                          {ads.videoMetrics?.videoWatches25Percent?.toLocaleString() ||
+                            '0'}
+                        </div>
+                        <div className="text-sm text-orange-600">
+                          25% Completion
+                        </div>
+                      </div>
+                      <div className="text-center p-4 bg-gradient-to-br from-yellow-50 to-lime-100 rounded-lg">
+                        <div className="text-2xl font-bold text-yellow-700">
+                          {ads.videoMetrics?.videoWatches75Percent?.toLocaleString() ||
+                            '0'}
+                        </div>
+                        <div className="text-sm text-yellow-600">
+                          75% Completion
+                        </div>
+                      </div>
+                      <div className="text-center p-4 bg-gradient-to-br from-green-50 to-emerald-100 rounded-lg">
+                        <div className="text-2xl font-bold text-green-700">
+                          {(
+                            ads.videoMetrics?.videoAvgWatchPercentage || 0
+                          ).toFixed(1)}
+                          %
+                        </div>
+                        <div className="text-sm text-green-600">
+                          Avg. Watch %
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                  <div className="text-center p-4 bg-gradient-to-br from-yellow-50 to-lime-100 rounded-lg">
-                    <div className="text-2xl font-bold text-yellow-700">
-                      {ads.videoMetrics?.videoWatches75Percent?.toLocaleString() ||
-                        '0'}
-                    </div>
-                    <div className="text-sm text-yellow-600">
-                      75% Completion
-                    </div>
-                  </div>
-                  <div className="text-center p-4 bg-gradient-to-br from-green-50 to-emerald-100 rounded-lg">
-                    <div className="text-2xl font-bold text-green-700">
-                      {(ads.videoMetrics?.videoAvgWatchPercentage || 0).toFixed(
-                        1
-                      )}
-                      %
-                    </div>
-                    <div className="text-sm text-green-600">Avg. Watch %</div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+                  </CardContent>
+                </Card>
+              )}
+            </>
           )}
         </>
       )}
