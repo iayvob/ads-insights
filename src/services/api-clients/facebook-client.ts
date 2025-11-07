@@ -379,9 +379,10 @@ export class FacebookApiClient extends BaseApiClient {
       console.log('✅ [FACEBOOK-POSTS] Page info found:', { pageId, pageName: pageInfo.pageName })
 
       // Step 1: Get posts with basic data and engagement metrics
-      // Updated to use non-deprecated fields according to Meta Graph API v23.0
-      // Note: .summary(true) is deprecated in v3.3+, fetch counts directly from insights instead
-      const postsUrl = `${this.BASE_URL}/${pageId}/posts?access_token=${pageAccessToken}&fields=id,message,story,created_time,type,status_type,full_picture,permalink_url&limit=100`;
+      // Use /feed endpoint instead of /posts to avoid deprecation warnings
+      // According to Meta Graph API v23.0, /posts endpoint has deprecated aggregated fields
+      // /feed returns all posts published by the Page or others on the Page
+      const postsUrl = `${this.BASE_URL}/${pageId}/feed?access_token=${pageAccessToken}&fields=id,message,story,created_time,type,full_picture,permalink_url&limit=100`;
 
       const postsData = await this.makeRequest<any>(postsUrl, {}, "Failed to fetch Facebook posts");
       const posts = postsData.data || [];
@@ -819,7 +820,7 @@ export class FacebookApiClient extends BaseApiClient {
 
       // Extract insights metrics first (this includes engagement data)
       const insightsData = this.extractPostInsights(insights);
-      
+
       // For engagement metrics, use insights data as primary source
       // Fallback to direct post fields if available (though deprecated)
       const likes = insightsData.likes || post.likes?.summary?.total_count || 0;
