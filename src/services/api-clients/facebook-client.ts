@@ -88,7 +88,7 @@ export class FacebookApiClient extends BaseApiClient {
     'quality_ranking',
     'engagement_rate_ranking',
     'conversion_rate_ranking',
-    
+
     // Outbound clicks (replacement for website_clicks)
     'outbound_clicks',
     'outbound_clicks_ctr',
@@ -380,8 +380,8 @@ export class FacebookApiClient extends BaseApiClient {
 
       // Step 1: Get posts with basic data and engagement metrics
       // Updated to use non-deprecated fields according to Meta Graph API v23.0
-      // Removed deprecated 'attachments' field - use individual media fields instead
-      const postsUrl = `${this.BASE_URL}/${pageId}/posts?access_token=${pageAccessToken}&fields=id,message,story,created_time,type,status_type,full_picture,permalink_url,likes.summary(true),comments.summary(true),shares,reactions.summary(true)&limit=100`;
+      // Note: .summary(true) is deprecated in v3.3+, fetch counts directly from insights instead
+      const postsUrl = `${this.BASE_URL}/${pageId}/posts?access_token=${pageAccessToken}&fields=id,message,story,created_time,type,status_type,full_picture,permalink_url&limit=100`;
 
       const postsData = await this.makeRequest<any>(postsUrl, {}, "Failed to fetch Facebook posts");
       const posts = postsData.data || [];
@@ -817,17 +817,18 @@ export class FacebookApiClient extends BaseApiClient {
     return postsWithInsights.map(post => {
       const insights = post.insights || [];
 
-      // Extract basic engagement metrics
-      const likes = post.likes?.summary?.total_count || 0;
-      const comments = post.comments?.summary?.total_count || 0;
-      const shares = post.shares?.count || 0;
-
-      // Extract reaction counts
-      const reactions = this.extractReactionCounts(post.reactions);
-      const totalReactions = Object.values(reactions).reduce((sum, count) => sum + count, 0);
-
-      // Extract insights metrics
+      // Extract insights metrics first (this includes engagement data)
       const insightsData = this.extractPostInsights(insights);
+      
+      // For engagement metrics, use insights data as primary source
+      // Fallback to direct post fields if available (though deprecated)
+      const likes = insightsData.likes || post.likes?.summary?.total_count || 0;
+      const comments = insightsData.comments || post.comments?.summary?.total_count || 0;
+      const shares = insightsData.shares || post.shares?.count || 0;
+
+      // Extract reaction counts from insights if available
+      const reactions = insightsData.reactions || this.extractReactionCounts(post.reactions);
+      const totalReactions = Object.values(reactions).reduce((sum, count) => sum + (count as number), 0);
 
       // Determine media type
       const mediaType = this.determineEnhancedMediaType(post);
@@ -896,7 +897,7 @@ export class FacebookApiClient extends BaseApiClient {
    * Extract comprehensive insights from post insights data
    */
   private static extractPostInsights(insights: any[]): any {
-    const extractedData = {
+    const extractedData: any = {
       reach: 0,
       impressions: 0,
       organicReach: 0,
@@ -913,7 +914,12 @@ export class FacebookApiClient extends BaseApiClient {
       soundOnViews: 0,
       autoplayedViews: 0,
       clickToPlayViews: 0,
-      videoCompletionRate: 0
+      videoCompletionRate: 0,
+      // Add engagement metrics
+      likes: 0,
+      comments: 0,
+      shares: 0,
+      reactions: { like: 0, love: 0, wow: 0, haha: 0, sad: 0, angry: 0 }
     };
 
     insights.forEach(insight => {
@@ -941,6 +947,27 @@ export class FacebookApiClient extends BaseApiClient {
         case 'post_engaged_users':
           extractedData.engagedUsers = value;
           break;
+        // Reaction metrics from insights
+        case 'post_reactions_like_total':
+          extractedData.reactions.like = value;
+          extractedData.likes = value; // Also set total likes
+          break;
+        case 'post_reactions_love_total':
+          extractedData.reactions.love = value;
+          break;
+        case 'post_reactions_wow_total':
+          extractedData.reactions.wow = value;
+          break;
+        case 'post_reactions_haha_total':
+          extractedData.reactions.haha = value;
+          break;
+        case 'post_reactions_sorry_total':
+          extractedData.reactions.sad = value;
+          break;
+        case 'post_reactions_anger_total':
+          extractedData.reactions.angry = value;
+          break;
+        // Video metrics
         case 'post_video_views':
           extractedData.videoViews = value;
           break;
