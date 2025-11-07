@@ -1,0 +1,474 @@
+{
+  "meta": {
+    "title": "Instagram Graph API v23.0 - Critical Fixes Implementation",
+    "platform": "Instagram Business",
+    "api_version": "v23.0",
+    "priority": "CRITICAL",
+    "execution_mode": "SEQUENTIAL",
+    "total_issues": 12,
+    "estimated_time": "90 minutes",
+    "test_after_each_phase": true
+  },
+  "context": {
+    "problem_summary": "Instagram integration returns empty insights, uses fake estimations, and has 12 critical API mismatches causing data loss",
+    "root_cause": "Invalid metric names, wrong API syntax, mixing account/media insights, missing media type filtering",
+    "user_impact": "Users see fabricated data (reach * 15, impressions * 25), zero insights count, missing stories/ads analytics",
+    "evidence": "Logs show insightsCount: 0, insightNames: [], falling back to like_count + comments_count estimations"
+  },
+  "phase_1_critical_api_fixes": {
+    "priority": "CRITICAL",
+    "must_complete_first": true,
+    "estimated_time": "30 minutes",
+    "fixes": [
+      {
+        "issue_id": 1,
+        "title": "Fix INSTAGRAM_INSIGHTS_FIELDS - Remove Invalid Metrics",
+        "severity": "CRITICAL",
+        "file": "src/services/api-clients/instagram-client.ts",
+        "line_range": "69-94",
+        "current_state": "Contains 20+ invalid metrics like 'likes', 'comments', 'shares', 'follows', 'profile_activity', 'website_clicks', 'email_contacts' that DO NOT EXIST in Instagram Media Insights API",
+        "required_action": "REPLACE entire INSTAGRAM_INSIGHTS_FIELDS constant with ONLY valid metrics per media type",
+        "exact_implementation": {
+          "step_1": "DELETE current INSTAGRAM_INSIGHTS_FIELDS constant (lines 69-94)",
+          "step_2": "CREATE three new constants for different media types",
+          "step_3": "Use media-type-specific metrics in API requests",
+          "code_to_replace": "private static readonly INSTAGRAM_INSIGHTS_FIELDS = [\n  'engagement',\n  'impressions',\n  'reach',\n  'saved',\n  'profile_views',\n  'website_clicks',\n  'email_contacts',\n  'phone_call_clicks',\n  'text_message_clicks',\n  'get_directions_clicks',\n  'likes',\n  'comments',\n  'shares',\n  'follows',\n  'profile_activity',\n  'video_views',\n  'video_view_time',\n  'story_exits',\n  'story_replies',\n  'story_taps_forward',\n  'story_taps_back',\n  'story_completion'\n].join(',')",
+          "new_code": "// Valid metrics per media type (Instagram Graph API v23.0)\nprivate static readonly IMAGE_CAROUSEL_INSIGHTS = 'engagement,impressions,reach,saved'\nprivate static readonly VIDEO_REEL_INSIGHTS = 'engagement,impressions,reach,saved,video_views,total_interactions'\nprivate static readonly STORY_INSIGHTS = 'exits,impressions,reach,replies,taps_forward,taps_back'"
+        },
+        "validation": {
+          "test": "Request media insights and verify insightsCount > 0",
+          "expected_log": "insightsCount: 4 (for images), insightNames: ['engagement', 'impressions', 'reach', 'saved']",
+          "success_criteria": "No empty insights.data arrays, no estimation fallbacks triggered"
+        },
+        "references": {
+          "official_docs": "https://developers.facebook.com/docs/instagram-api/reference/ig-media/insights",
+          "valid_metrics_image": [
+            "engagement",
+            "impressions",
+            "reach",
+            "saved"
+          ],
+          "valid_metrics_video": [
+            "engagement",
+            "impressions",
+            "reach",
+            "saved",
+            "video_views",
+            "total_interactions"
+          ],
+          "valid_metrics_story": [
+            "exits",
+            "impressions",
+            "reach",
+            "replies",
+            "taps_forward",
+            "taps_back"
+          ]
+        }
+      },
+      {
+        "issue_id": 3,
+        "title": "Fix insights.metric() Syntax in MEDIA_FIELDS",
+        "severity": "CRITICAL",
+        "file": "src/services/api-clients/instagram-client.ts",
+        "line_range": "100-112",
+        "current_state": "Uses insights.metric(${this.INSTAGRAM_INSIGHTS_FIELDS}) which creates invalid 20+ metric request",
+        "required_action": "REMOVE insights from MEDIA_FIELDS, fetch insights separately per media type",
+        "exact_implementation": {
+          "step_1": "REMOVE insights.metric() line from MEDIA_FIELDS constant",
+          "step_2": "UPDATE MEDIA_FIELDS to only request basic media data",
+          "step_3": "CREATE new method getMediaInsights() to fetch insights separately based on media_type",
+          "code_to_replace": "private static readonly MEDIA_FIELDS = [\n  'id',\n  'media_type',\n  'media_url',\n  'permalink',\n  'timestamp',\n  'caption',\n  'like_count',\n  'comments_count',\n  'is_comment_enabled',\n  'media_product_type',\n  'thumbnail_url',\n  'children{id,media_type,media_url,timestamp}',\n  `insights.metric(${this.INSTAGRAM_INSIGHTS_FIELDS})`\n].join(',')",
+          "new_code": "// Fetch media data WITHOUT insights (fetch insights separately per media type)\nprivate static readonly MEDIA_FIELDS = [\n  'id',\n  'media_type',\n  'media_url',\n  'permalink',\n  'timestamp',\n  'caption',\n  'like_count',\n  'comments_count',\n  'is_comment_enabled',\n  'media_product_type',\n  'thumbnail_url',\n  'children{id,media_type,media_url,timestamp}'\n].join(',')"
+        },
+        "new_method_to_add": {
+          "method_name": "getMediaInsights",
+          "location": "After getComprehensivePostsAnalytics method",
+          "code": "/**\n * Fetch insights for a single media item based on its type\n * @param mediaId - Instagram media ID\n * @param mediaType - IMAGE, VIDEO, CAROUSEL_ALBUM, or STORY\n * @param pageAccessToken - Page access token\n */\nprivate static async getMediaInsights(\n  mediaId: string,\n  mediaType: string,\n  pageAccessToken: string\n): Promise<any[]> {\n  try {\n    let metrics = this.IMAGE_CAROUSEL_INSIGHTS\n    \n    if (mediaType === 'VIDEO' || mediaType === 'REELS') {\n      metrics = this.VIDEO_REEL_INSIGHTS\n    } else if (mediaType === 'STORY') {\n      metrics = this.STORY_INSIGHTS\n    }\n    \n    const response = await fetch(\n      `${this.BASE_URL}/${mediaId}/insights?metric=${metrics}&access_token=${pageAccessToken}`\n    )\n    \n    if (!response.ok) {\n      logger.warn(`Failed to fetch insights for media ${mediaId}`, { mediaType })\n      return []\n    }\n    \n    const data = await response.json()\n    return data.data || []\n  } catch (error) {\n    logger.error(`Error fetching media insights`, { error, mediaId })\n    return []\n  }\n}",
+          "usage": "In processComprehensiveInstagramData, call: const insights = await this.getMediaInsights(post.id, post.media_type, pageAccessToken)"
+        },
+        "validation": {
+          "test": "Fetch media and separately fetch insights per media",
+          "expected_behavior": "Each media gets correct insights based on type",
+          "success_criteria": "insightsCount matches media type (4 for image, 6 for video, 6 for story)"
+        }
+      },
+      {
+        "issue_id": 2,
+        "title": "Separate Account Insights from Media Insights",
+        "severity": "CRITICAL",
+        "file": "src/services/api-clients/instagram-client.ts",
+        "line_range": "115-128, 920-935",
+        "current_state": "ACCOUNT_INSIGHTS_FIELDS mixes lifetime-only and period-based metrics, requested with wrong period",
+        "required_action": "SPLIT into two separate constants and two separate API calls",
+        "exact_implementation": {
+          "step_1": "CREATE two new constants: ACCOUNT_INSIGHTS_LIFETIME and ACCOUNT_INSIGHTS_PERIOD",
+          "step_2": "UPDATE getAccountInsights() to make TWO separate API calls",
+          "step_3": "MERGE results from both calls",
+          "code_to_replace": "private static readonly ACCOUNT_INSIGHTS_FIELDS = [\n  'audience_city',\n  'audience_country',\n  'audience_gender_age',\n  'audience_locale',\n  'online_followers',\n  'profile_views',\n  'website_clicks',\n  'follower_count',\n  'get_directions_clicks',\n  'phone_call_clicks',\n  'text_message_clicks',\n  'email_contacts'\n].join(',')",
+          "new_code": "// Account insights split by period type (Instagram Graph API v23.0)\nprivate static readonly ACCOUNT_INSIGHTS_LIFETIME = 'audience_city,audience_country,audience_gender_age,audience_locale,online_followers'\nprivate static readonly ACCOUNT_INSIGHTS_PERIOD = 'profile_views,website_clicks,follower_count,email_contacts,phone_call_clicks,text_message_clicks,get_directions_clicks'"
+        },
+        "method_update": {
+          "method_name": "getAccountInsights",
+          "current_line": "920-935",
+          "new_implementation": "/**\n * Get account-level insights using TWO separate calls\n * - Lifetime metrics: audience demographics\n * - Period metrics: profile views, clicks, follower count\n */\nprivate static async getAccountInsights(igUserId: string, pageAccessToken: string) {\n  try {\n    // Call 1: Lifetime metrics\n    const lifetimeResponse = await fetch(\n      `${this.BASE_URL}/${igUserId}/insights?access_token=${pageAccessToken}&metric=${this.ACCOUNT_INSIGHTS_LIFETIME}&period=lifetime`\n    )\n    \n    // Call 2: Period metrics (last 7 days)\n    const periodResponse = await fetch(\n      `${this.BASE_URL}/${igUserId}/insights?access_token=${pageAccessToken}&metric=${this.ACCOUNT_INSIGHTS_PERIOD}&period=day&since=${Math.floor(Date.now() / 1000) - 7 * 24 * 60 * 60}&until=${Math.floor(Date.now() / 1000)}`\n    )\n    \n    if (!lifetimeResponse.ok || !periodResponse.ok) {\n      throw new Error('Failed to fetch account insights')\n    }\n    \n    const lifetimeData = await lifetimeResponse.json()\n    const periodData = await periodResponse.json()\n    \n    const insights: any = {}\n    \n    // Process lifetime metrics\n    lifetimeData.data?.forEach((metric: any) => {\n      insights[metric.name] = metric.values?.[0]?.value || null\n    })\n    \n    // Process period metrics (sum values across days)\n    periodData.data?.forEach((metric: any) => {\n      const total = metric.values?.reduce((sum: number, day: any) => sum + (day.value || 0), 0) || 0\n      insights[metric.name] = total\n    })\n    \n    return insights\n  } catch (error) {\n    logger.warn('Failed to fetch Instagram account insights', { error })\n    return {}\n  }\n}"
+        },
+        "validation": {
+          "test": "Call getAccountInsights and verify both lifetime and period data returned",
+          "expected_result": "insights object contains audience_city, profile_views, follower_count with real values",
+          "success_criteria": "No API error 100 'Invalid parameter', all metrics have non-zero values"
+        }
+      },
+      {
+        "issue_id": 6,
+        "title": "Fix Account Insights Period Parameter",
+        "severity": "CRITICAL",
+        "file": "src/services/api-clients/instagram-client.ts",
+        "line_range": "925",
+        "current_state": "Uses period=week for ALL metrics, but audience metrics ONLY support lifetime",
+        "required_action": "Handled in Issue #2 fix above - separate calls with correct periods",
+        "status": "RESOLVED_BY_ISSUE_2",
+        "validation": {
+          "test": "Verify no API error 100 when fetching account insights",
+          "success_criteria": "Both API calls succeed, lifetime metrics use period=lifetime, period metrics use period=day"
+        }
+      }
+    ],
+    "phase_completion_test": {
+      "test_name": "Phase 1 Critical API Fixes Validation",
+      "steps": [
+        "Run npm run dev",
+        "Connect Instagram Business account",
+        "Check logs for 'insightsCount: 4' (images) or 'insightsCount: 6' (videos)",
+        "Verify NO estimation fallbacks (no 'finalReach = engagement * 15')",
+        "Confirm account insights returned (profile_views > 0)"
+      ],
+      "success_criteria": {
+        "insights_populated": true,
+        "no_estimation_fallbacks": true,
+        "account_insights_present": true,
+        "api_errors": 0
+      }
+    }
+  },
+  "phase_2_data_quality_fixes": {
+    "priority": "HIGH",
+    "depends_on": "phase_1_critical_api_fixes",
+    "estimated_time": "35 minutes",
+    "fixes": [
+      {
+        "issue_id": 4,
+        "title": "Add Media Type Filtering for Insights",
+        "severity": "HIGH",
+        "file": "src/services/api-clients/instagram-client.ts",
+        "line_range": "936-1180 (processComprehensiveInstagramData)",
+        "current_state": "Processes all media with same insights request, no type filtering",
+        "required_action": "UPDATE processComprehensiveInstagramData to call getMediaInsights per media item",
+        "exact_implementation": {
+          "step_1": "MODIFY media processing loop to fetch insights per media",
+          "step_2": "REMOVE insights from media fetch, add separate insights fetch",
+          "step_3": "HANDLE different media types (IMAGE, VIDEO, CAROUSEL_ALBUM, REELS, STORY)",
+          "update_location": "Line 886 - getComprehensivePostsAnalytics method",
+          "code_change": {
+            "remove_from_media_fetch": "`insights.metric(...)`",
+            "add_in_processing_loop": "// Fetch insights separately for each media item\nfor (const post of media) {\n  const insights = await this.getMediaInsights(post.id, post.media_type, pageAccessToken)\n  post.insights = { data: insights }  // Attach to post object\n}",
+            "filter_logic": "// Filter media by type before processing\nconst feedMedia = media.filter(m => ['IMAGE', 'VIDEO', 'CAROUSEL_ALBUM'].includes(m.media_type))\nconst stories = []  // Stories fetched separately (Issue #8)\nconst reels = media.filter(m => m.media_product_type === 'REELS')"
+          }
+        },
+        "performance_optimization": {
+          "note": "Fetching insights per media increases API calls",
+          "solution": "Batch requests using Promise.all() in chunks of 10",
+          "code": "// Batch fetch insights to avoid rate limits\nconst BATCH_SIZE = 10\nfor (let i = 0; i < media.length; i += BATCH_SIZE) {\n  const batch = media.slice(i, i + BATCH_SIZE)\n  const insightsPromises = batch.map(post => \n    this.getMediaInsights(post.id, post.media_type, pageAccessToken)\n  )\n  const insightsResults = await Promise.all(insightsPromises)\n  batch.forEach((post, idx) => {\n    post.insights = { data: insightsResults[idx] }\n  })\n}"
+        },
+        "validation": {
+          "test": "Fetch mixed media (image, video, carousel) and verify correct insights per type",
+          "expected_behavior": "Images get 4 metrics, videos get 6 metrics including video_views",
+          "success_criteria": "Each media type receives appropriate insights, no errors"
+        }
+      },
+      {
+        "issue_id": 5,
+        "title": "Fix getInsightValue for Time-Series Data",
+        "severity": "HIGH",
+        "file": "src/services/api-clients/instagram-client.ts",
+        "line_range": "1188-1191",
+        "current_state": "Uses values[0] which only gets first value, wrong for period=day metrics",
+        "required_action": "UPDATE to handle both lifetime (single value) and period (multiple values)",
+        "exact_implementation": {
+          "code_to_replace": "private static getInsightValue(insights: any[], metricName: string): number {\n  const metric = insights.find(insight => insight.name === metricName)\n  return parseInt(metric?.values?.[0]?.value || '0')\n}",
+          "new_code": "/**\n * Extract insight value handling both lifetime and period-based metrics\n * - Lifetime metrics: Single value in values[0]\n * - Period metrics: Multiple values, sum or get latest\n */\nprivate static getInsightValue(insights: any[], metricName: string, aggregate: 'sum' | 'latest' = 'sum'): number {\n  const metric = insights.find(insight => insight.name === metricName)\n  if (!metric?.values?.length) return 0\n  \n  // Lifetime metrics or single value\n  if (metric.values.length === 1 || metric.period === 'lifetime') {\n    return parseInt(metric.values[0]?.value || '0')\n  }\n  \n  // Period metrics with multiple values\n  if (aggregate === 'sum') {\n    return metric.values.reduce((sum: number, item: any) => {\n      return sum + parseInt(item.value || '0')\n    }, 0)\n  } else {\n    // Get latest value\n    const latest = metric.values[metric.values.length - 1]\n    return parseInt(latest?.value || '0')\n  }\n}",
+          "usage_update": {
+            "media_insights": "Use 'latest' for media insights (single post lifetime metrics)",
+            "account_insights": "Use 'sum' for account insights (aggregate daily values)",
+            "example": "const impressions = this.getInsightValue(insights, 'impressions', 'latest')  // For media\nconst totalProfileViews = this.getInsightValue(accountInsights, 'profile_views', 'sum')  // For account"
+          }
+        },
+        "validation": {
+          "test": "Fetch account insights with period=day and verify values are summed",
+          "expected_result": "profile_views equals sum of 7 days, not just first day",
+          "success_criteria": "Aggregated values match real data, no data loss"
+        }
+      },
+      {
+        "issue_id": 7,
+        "title": "Add Pagination for Media Fetching",
+        "severity": "HIGH",
+        "file": "src/services/api-clients/instagram-client.ts",
+        "line_range": "886-900 (getComprehensivePostsAnalytics)",
+        "current_state": "Only fetches first 50 posts, no pagination handling",
+        "required_action": "IMPLEMENT cursor-based pagination to fetch ALL posts",
+        "exact_implementation": {
+          "code_to_replace": "const mediaResponse = await fetch(\n  `${this.BASE_URL}/${igUserId}/media?access_token=${pageAccessToken}&fields=${this.MEDIA_FIELDS}&limit=50`\n)\n\nif (!mediaResponse.ok) {\n  throw new Error('Failed to fetch Instagram media')\n}\n\nconst mediaData = await mediaResponse.json()\nconst media = mediaData.data || []",
+          "new_code": "// Fetch ALL media with pagination (up to 100 posts for performance)\nconst MAX_POSTS = 100\nconst media: any[] = []\nlet nextUrl: string | undefined = `${this.BASE_URL}/${igUserId}/media?access_token=${pageAccessToken}&fields=${this.MEDIA_FIELDS}&limit=25`\n\nwhile (nextUrl && media.length < MAX_POSTS) {\n  const mediaResponse = await fetch(nextUrl)\n  \n  if (!mediaResponse.ok) {\n    throw new Error('Failed to fetch Instagram media')\n  }\n  \n  const mediaData = await mediaResponse.json()\n  const newMedia = mediaData.data || []\n  media.push(...newMedia)\n  \n  // Get next page cursor\n  nextUrl = mediaData.paging?.next\n  \n  logger.info(`Fetched ${newMedia.length} media items, total: ${media.length}`, {\n    hasMore: !!nextUrl,\n    remaining: MAX_POSTS - media.length\n  })\n  \n  // Respect rate limits - small delay between pages\n  if (nextUrl && media.length < MAX_POSTS) {\n    await new Promise(resolve => setTimeout(resolve, 100))\n  }\n}\n\nlogger.info(`Total Instagram media fetched: ${media.length}`)",
+          "configurable_limit": {
+            "note": "MAX_POSTS = 100 balances completeness vs performance",
+            "rationale": "100 posts covers 3-6 months of content for most accounts",
+            "user_setting": "Could add to user preferences: fetch 50 (fast) vs 100 (complete) vs 200 (slow)"
+          }
+        },
+        "validation": {
+          "test": "Test with account having 100+ posts, verify all posts fetched",
+          "expected_behavior": "Logs show 'Fetched 25, total: 25', 'Fetched 25, total: 50', etc. up to MAX_POSTS",
+          "success_criteria": "All posts within MAX_POSTS limit are included in analytics"
+        }
+      },
+      {
+        "issue_id": 9,
+        "title": "Remove or Flag Fake Estimation Fallbacks",
+        "severity": "MEDIUM",
+        "file": "src/services/api-clients/instagram-client.ts",
+        "line_range": "992-997",
+        "current_state": "Silently uses fake multipliers (reach * 15, impressions * 25) when insights fail",
+        "required_action": "REMOVE estimation fallbacks OR add explicit warning that data is estimated",
+        "exact_implementation": {
+          "option_1_remove_estimation": {
+            "description": "Best for accuracy - only show real data",
+            "code_to_replace": "const finalEngagement = engagement > 0 ? engagement : (likes + comments)\nconst finalReach = reach > 0 ? reach : Math.floor(finalEngagement * 15)\nconst finalImpressions = impressions > 0 ? impressions : Math.floor(finalEngagement * 25)",
+            "new_code": "// Use ONLY real insights data, no estimations\nconst finalEngagement = engagement || 0\nconst finalReach = reach || 0\nconst finalImpressions = impressions || 0\n\nif (!engagement && (likes > 0 || comments > 0)) {\n  logger.warn('Insights unavailable for post, basic engagement only', {\n    postId: post.id,\n    likes,\n    comments,\n    note: 'Consider re-authenticating with instagram_manage_insights permission'\n  })\n  // Fallback to basic engagement calculation\n  finalEngagement = likes + comments\n}"
+          },
+          "option_2_flag_estimation": {
+            "description": "Show data but mark as estimated",
+            "code": "const finalEngagement = engagement > 0 ? engagement : (likes + comments)\nconst finalReach = reach > 0 ? reach : Math.floor(finalEngagement * 15)\nconst finalImpressions = impressions > 0 ? impressions : Math.floor(finalEngagement * 25)\n\n// Flag estimated data\nconst isEstimated = reach === 0 || impressions === 0\nif (isEstimated) {\n  logger.warn('⚠️ Using estimated metrics (insights unavailable)', {\n    postId: post.id,\n    estimatedReach: finalReach,\n    estimatedImpressions: finalImpressions\n  })\n}\n\n// Add flag to response for UI\nresult.isEstimated = isEstimated"
+          },
+          "recommended": "option_1_remove_estimation",
+          "rationale": "Phase 1 fixes should provide real insights, making estimation unnecessary"
+        },
+        "validation": {
+          "test": "After Phase 1 fixes, check if estimation code is ever triggered",
+          "expected_result": "With correct API calls, estimation code should NOT execute",
+          "success_criteria": "No warning logs about estimated metrics"
+        }
+      }
+    ],
+    "phase_completion_test": {
+      "test_name": "Phase 2 Data Quality Validation",
+      "steps": [
+        "Verify media type filtering works (images get 4 metrics, videos get 6)",
+        "Confirm pagination fetches more than 50 posts",
+        "Check getInsightValue correctly aggregates period metrics",
+        "Ensure no estimation warnings in logs"
+      ],
+      "success_criteria": {
+        "all_media_types_handled": true,
+        "pagination_working": true,
+        "correct_aggregation": true,
+        "no_fake_data": true
+      }
+    }
+  },
+  "phase_3_feature_completeness": {
+    "priority": "MEDIUM",
+    "depends_on": "phase_2_data_quality_fixes",
+    "estimated_time": "25 minutes",
+    "fixes": [
+      {
+        "issue_id": 8,
+        "title": "Add Stories Endpoint Integration",
+        "severity": "HIGH",
+        "file": "src/services/api-clients/instagram-client.ts",
+        "location": "After getComprehensivePostsAnalytics method",
+        "current_state": "Stories analytics completely missing, storyMetrics always empty",
+        "required_action": "CREATE new method to fetch stories separately",
+        "exact_implementation": {
+          "new_method": {
+            "name": "getStoriesAnalytics",
+            "code": "/**\n * Fetch Instagram Stories analytics (separate from feed posts)\n * Stories are ephemeral (24 hours) so this fetches currently active stories\n */\nprivate static async getStoriesAnalytics(\n  igUserId: string,\n  pageAccessToken: string\n): Promise<any> {\n  try {\n    const storiesResponse = await fetch(\n      `${this.BASE_URL}/${igUserId}/stories?fields=id,media_type,timestamp,media_url&access_token=${pageAccessToken}`\n    )\n    \n    if (!storiesResponse.ok) {\n      logger.info('No active stories or stories fetch failed')\n      return null\n    }\n    \n    const storiesData = await storiesResponse.json()\n    const stories = storiesData.data || []\n    \n    if (stories.length === 0) {\n      return null\n    }\n    \n    // Fetch insights for each story\n    const storyInsightsPromises = stories.map((story: any) =>\n      fetch(\n        `${this.BASE_URL}/${story.id}/insights?metric=${this.STORY_INSIGHTS}&access_token=${pageAccessToken}`\n      ).then(res => res.json())\n    )\n    \n    const insightsResults = await Promise.all(storyInsightsPromises)\n    \n    // Aggregate story metrics\n    let totalImpressions = 0\n    let totalReach = 0\n    let totalReplies = 0\n    let totalTapsForward = 0\n    let totalTapsBack = 0\n    let totalExits = 0\n    \n    insightsResults.forEach(result => {\n      const insights = result.data || []\n      totalImpressions += this.getInsightValue(insights, 'impressions', 'latest')\n      totalReach += this.getInsightValue(insights, 'reach', 'latest')\n      totalReplies += this.getInsightValue(insights, 'replies', 'latest')\n      totalTapsForward += this.getInsightValue(insights, 'taps_forward', 'latest')\n      totalTapsBack += this.getInsightValue(insights, 'taps_back', 'latest')\n      totalExits += this.getInsightValue(insights, 'exits', 'latest')\n    })\n    \n    const avgCompletionRate = stories.length > 0\n      ? ((totalTapsForward + totalTapsBack - totalExits) / (totalTapsForward + totalTapsBack)) * 100\n      : 0\n    \n    return {\n      totalStoryImpressions: totalImpressions,\n      totalStoryReach: totalReach,\n      storyReplies: totalReplies,\n      storyForwardTaps: totalTapsForward,\n      storyBackTaps: totalTapsBack,\n      storyExits: totalExits,\n      totalStoryViews: totalImpressions,  // Impressions = views for stories\n      avgStoryCompletionRate: avgCompletionRate\n    }\n  } catch (error) {\n    logger.error('Failed to fetch stories analytics', { error })\n    return null\n  }\n}"
+          },
+          "integration_point": {
+            "method": "fetchAnalytics",
+            "line": "~160",
+            "add_call": "// Fetch stories analytics\nconst storiesAnalytics = await this.getStoriesAnalytics(igUserId, pageAccessToken)",
+            "merge_into_result": "posts: {\n  ...postsAnalytics.value,\n  storyMetrics: storiesAnalytics  // Add to InstagramPostAnalytics\n}"
+          }
+        },
+        "validation": {
+          "test": "Post an Instagram story, wait 5 minutes, fetch analytics",
+          "expected_result": "storyMetrics populated with impressions, reach, replies, taps",
+          "success_criteria": "UI shows story metrics instead of 0"
+        }
+      },
+      {
+        "issue_id": 10,
+        "title": "Implement Real Ads API Integration",
+        "severity": "MEDIUM",
+        "file": "src/services/api-clients/instagram-client.ts",
+        "line_range": "409-774 (fetchInstagramAdAccountInsights, aggregateInstagramAdsData)",
+        "current_state": "Methods exist but return mock data, no real Marketing API calls",
+        "required_action": "IMPLEMENT real Facebook Marketing API calls for Instagram ad insights",
+        "exact_implementation": {
+          "update_method": "fetchInstagramAdAccountInsights",
+          "current_line": "409-482",
+          "new_implementation": "/**\n * Fetch REAL Instagram ad insights from Facebook Marketing API\n */\nprivate static async fetchInstagramAdAccountInsights(\n  pageAccessToken: string,\n  adAccountId: string\n) {\n  try {\n    // Fetch campaigns with Instagram placement\n    const campaignsResponse = await fetch(\n      `${this.BASE_URL}/act_${adAccountId}/campaigns?access_token=${pageAccessToken}&fields=id,name,status,objective&filtering=[{\"field\":\"status\",\"operator\":\"IN\",\"value\":[\"ACTIVE\",\"PAUSED\"]}]&limit=50`\n    )\n    \n    if (!campaignsResponse.ok) {\n      throw new Error('Failed to fetch ad campaigns')\n    }\n    \n    const campaignsData = await campaignsResponse.json()\n    const campaigns = campaignsData.data || []\n    \n    if (campaigns.length === 0) {\n      logger.info('No campaigns found for ad account', { adAccountId })\n      return null\n    }\n    \n    // Fetch insights for Instagram placements only\n    const insightsResponse = await fetch(\n      `${this.BASE_URL}/act_${adAccountId}/insights?access_token=${pageAccessToken}&time_range={\"since\":\"2024-10-01\",\"until\":\"${new Date().toISOString().split('T')[0]}\"}&fields=spend,impressions,reach,clicks,ctr,cpc,actions,conversions&filtering=[{\"field\":\"publisher_platform\",\"operator\":\"IN\",\"value\":[\"instagram\"]}]&level=account&limit=1`\n    )\n    \n    if (!insightsResponse.ok) {\n      throw new Error('Failed to fetch ad insights')\n    }\n    \n    const insightsData = await insightsResponse.json()\n    const insights = insightsData.data?.[0]\n    \n    if (!insights) {\n      return null\n    }\n    \n    return {\n      adAccountId,\n      spend: parseFloat(insights.spend || '0'),\n      impressions: parseInt(insights.impressions || '0'),\n      reach: parseInt(insights.reach || '0'),\n      clicks: parseInt(insights.clicks || '0'),\n      ctr: parseFloat(insights.ctr || '0'),\n      cpc: parseFloat(insights.cpc || '0'),\n      actions: insights.actions || [],\n      conversions: insights.conversions || []\n    }\n  } catch (error) {\n    logger.error('Failed to fetch Instagram ad insights', { error, adAccountId })\n    throw error\n  }\n}",
+          "note": "This makes REAL API calls to Facebook Marketing API, requires ads_read permission"
+        },
+        "validation": {
+          "test": "Connect account with active Instagram ads, verify real spend/impressions data",
+          "expected_result": "Real ad metrics displayed instead of mock data",
+          "success_criteria": "Premium users see actual ad performance, not fake numbers"
+        }
+      },
+      {
+        "issue_id": 11,
+        "title": "Add Token Scope Validation",
+        "severity": "HIGH",
+        "file": "src/services/api-clients/instagram-client.ts",
+        "location": "Beginning of fetchAnalytics method",
+        "current_state": "No permission validation, unclear errors when token lacks scopes",
+        "required_action": "ADD validateTokenScopes method and call before API requests",
+        "exact_implementation": {
+          "new_method": {
+            "name": "validateTokenScopes",
+            "location": "After getInstagramBusinessAccount method",
+            "code": "/**\n * Validate that access token has required Instagram permissions\n * Provides clear error messages for missing scopes\n */\nprivate static async validateTokenScopes(accessToken: string): Promise<{\n  valid: boolean\n  missingScopes: string[]\n  message?: string\n}> {\n  try {\n    // Inspect token permissions\n    const debugResponse = await fetch(\n      `${this.BASE_URL}/debug_token?input_token=${accessToken}&access_token=${accessToken}`\n    )\n    \n    if (!debugResponse.ok) {\n      return {\n        valid: false,\n        missingScopes: [],\n        message: 'Unable to validate token permissions'\n      }\n    }\n    \n    const debugData = await debugResponse.json()\n    const scopes = debugData.data?.scopes || []\n    \n    // Required scopes for Instagram Business analytics\n    const requiredScopes = [\n      'instagram_basic',\n      'instagram_manage_insights',\n      'pages_show_list',\n      'pages_read_engagement'\n    ]\n    \n    const missingScopes = requiredScopes.filter(scope => !scopes.includes(scope))\n    \n    if (missingScopes.length > 0) {\n      logger.warn('Token missing required Instagram permissions', {\n        missingScopes,\n        currentScopes: scopes\n      })\n      \n      return {\n        valid: false,\n        missingScopes,\n        message: `Missing permissions: ${missingScopes.join(', ')}. Please reconnect Instagram account with required permissions.`\n      }\n    }\n    \n    return { valid: true, missingScopes: [] }\n  } catch (error) {\n    logger.error('Failed to validate token scopes', { error })\n    return {\n      valid: false,\n      missingScopes: [],\n      message: 'Unable to validate permissions'\n    }\n  }\n}"
+          },
+          "integration": {
+            "method": "fetchAnalytics",
+            "add_at_start": "// Validate token has required permissions\nconst scopeValidation = await this.validateTokenScopes(accessToken)\nif (!scopeValidation.valid) {\n  throw new Error(scopeValidation.message || 'Invalid token permissions')\n}"
+          }
+        },
+        "validation": {
+          "test": "Connect with token missing instagram_manage_insights, verify clear error",
+          "expected_result": "Error: 'Missing permissions: instagram_manage_insights. Please reconnect...'",
+          "success_criteria": "User knows exactly what's wrong and how to fix it"
+        }
+      },
+      {
+        "issue_id": 12,
+        "title": "Standardize Error Handling",
+        "severity": "HIGH",
+        "file": "src/services/api-clients/instagram-client.ts",
+        "scope": "All methods with try-catch blocks",
+        "current_state": "Inconsistent: some throw errors, some return mocks, some return empty objects",
+        "required_action": "STANDARDIZE to always throw errors with clear messages, never return mock data silently",
+        "exact_implementation": {
+          "strategy": "Always throw descriptive errors, let caller decide fallback behavior",
+          "pattern_to_replace": "catch (error) {\n  logger.error('Failed to X', { error })\n  return this.getMockX()  // ❌ BAD\n}",
+          "new_pattern": "catch (error) {\n  logger.error('Failed to X', {\n    error: error instanceof Error ? error.message : error,\n    stack: error instanceof Error ? error.stack : undefined\n  })\n  \n  // Throw with clear message\n  throw new Error(`Instagram API: Failed to X. ${error instanceof Error ? error.message : 'Unknown error'}. Please check token permissions and try again.`)\n}",
+          "apply_to_methods": [
+            "fetchAnalytics",
+            "getPostsAnalytics",
+            "getAdsAnalytics",
+            "getInstagramAdsAnalytics",
+            "getComprehensivePostsAnalytics",
+            "getAccountInsights",
+            "getEnhancedProfileData"
+          ],
+          "caller_handling": {
+            "location": "src/app/api/dashboard/instagram/route.ts",
+            "pattern": "try {\n  const instagramData = await InstagramApiClient.fetchAnalytics(accessToken, hasAdsAccess)\n  // Use real data\n} catch (error) {\n  logger.error('Instagram analytics failed', { error })\n  // Return error to client with clear message\n  return NextResponse.json({\n    error: error instanceof Error ? error.message : 'Failed to fetch Instagram analytics',\n    action: 'reconnect',\n    details: 'Please reconnect your Instagram account with required permissions'\n  }, { status: 500 })\n}"
+          }
+        },
+        "validation": {
+          "test": "Trigger various API failures (invalid token, missing permissions, rate limit)",
+          "expected_result": "Clear error messages propagated to UI, no silent mock data",
+          "success_criteria": "User always knows when data is missing and why"
+        }
+      }
+    ],
+    "phase_completion_test": {
+      "test_name": "Phase 3 Feature Completeness Validation",
+      "steps": [
+        "Post Instagram story, verify story metrics appear",
+        "Check premium user sees real ads data (not mock)",
+        "Test with invalid token, verify clear permission error",
+        "Confirm all errors are descriptive and actionable"
+      ],
+      "success_criteria": {
+        "stories_working": true,
+        "real_ads_data": true,
+        "clear_errors": true,
+        "no_mock_fallbacks": true
+      }
+    }
+  },
+  "final_validation": {
+    "comprehensive_test": {
+      "name": "End-to-End Instagram Analytics Validation",
+      "steps": [
+        "1. Fresh authentication with Instagram Business account",
+        "2. Verify token has all required scopes (instagram_basic, instagram_manage_insights, pages_show_list, pages_read_engagement)",
+        "3. Fetch analytics and check logs for:",
+        "   - insightsCount > 0 for each media type",
+        "   - No estimation warnings",
+        "   - All posts fetched (up to MAX_POSTS)",
+        "   - Account insights populated",
+        "   - Stories metrics if stories exist",
+        "   - Real ads data for premium users",
+        "4. UI verification:",
+        "   - Posts analytics show real metrics",
+        "   - Engagement rate calculated from real data",
+        "   - Top posts ranked by actual engagement",
+        "   - Story impressions displayed if stories active",
+        "   - Ads spend/impressions show real values (premium)",
+        "5. Error handling test:",
+        "   - Disconnect Instagram, verify clear error",
+        "   - Revoke instagram_manage_insights, verify permission error",
+        "   - Rate limit test (many requests), verify graceful handling"
+      ],
+      "success_criteria": {
+        "all_insights_populated": true,
+        "zero_fake_estimations": true,
+        "complete_data_fetched": true,
+        "clear_error_messages": true,
+        "ui_shows_real_data": true,
+        "performance_acceptable": true,
+        "rate_limits_respected": true
+      }
+    },
+    "rollback_plan": {
+      "if_issues_found": "git revert to pre-fix state",
+      "incremental_deployment": "Deploy Phase 1 first, validate, then Phase 2, then Phase 3",
+      "monitoring": "Watch error logs for new API errors or unexpected responses"
+    }
+  },
+  "performance_metrics": {
+    "before_fixes": {
+      "api_calls_per_fetch": "1 (media) + 1 (account insights) = 2 calls",
+      "insights_success_rate": "0% (empty insights.data)",
+      "data_accuracy": "0% real, 100% estimated",
+      "posts_fetched": "50 max (no pagination)",
+      "stories_fetched": "0 (not implemented)"
+    },
+    "after_fixes": {
+      "api_calls_per_fetch": "1 (media) + N (insights per media in batches) + 2 (account insights) + 1 (stories) = ~15-20 calls",
+      "insights_success_rate": "100% (correct metrics)",
+      "data_accuracy": "100% real, 0% estimated",
+      "posts_fetched": "100 max (with pagination)",
+      "stories_fetched": "All active stories",
+      "note": "More API calls but ALL REAL DATA"
+    },
+    "rate_limit_considerations": {
+      "instagram_api_limits": "200 calls per hour per user",
+      "batch_strategy": "Fetch insights in batches of 10 to stay under limits",
+      "caching": "Cache results for 15 minutes to reduce repeated calls"
+    }
+  },
+  "documentation_updates": {
+    "files_to_update": [
+      "docs/posts/ig_posts.md - Update with correct metrics",
+      "docs/ads/ig_ads.md - Update with real API implementation",
+      "README.md - Add Instagram setup instructions"
+    ],
+    "code_comments": "Add inline comments explaining media type filtering, insight aggregation, pagination logic"
+  }
+}

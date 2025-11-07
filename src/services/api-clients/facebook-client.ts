@@ -379,10 +379,10 @@ export class FacebookApiClient extends BaseApiClient {
       console.log('✅ [FACEBOOK-POSTS] Page info found:', { pageId, pageName: pageInfo.pageName })
 
       // Step 1: Get posts with basic data and engagement metrics
-      // Use /feed endpoint instead of /posts to avoid deprecation warnings
-      // According to Meta Graph API v23.0, /posts endpoint has deprecated aggregated fields
-      // /feed returns all posts published by the Page or others on the Page
-      const postsUrl = `${this.BASE_URL}/${pageId}/feed?access_token=${pageAccessToken}&fields=id,message,story,created_time,type,full_picture,permalink_url&limit=100`;
+      // Use /published_posts endpoint to avoid deprecation issues
+      // According to Meta Graph API v23.0, /published_posts returns only published Page posts
+      // This avoids the "deprecate_post_aggregated_fields_for_attachement" error
+      const postsUrl = `${this.BASE_URL}/${pageId}/published_posts?access_token=${pageAccessToken}&fields=id,message,story,created_time,type,full_picture,permalink_url&limit=100`;
 
       const postsData = await this.makeRequest<any>(postsUrl, {}, "Failed to fetch Facebook posts");
       const posts = postsData.data || [];
