@@ -46,12 +46,12 @@ export abstract class BaseApiClient {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}))
-        
+
         // Handle rate limiting (429)
         if (response.status === 429) {
           const retryAfter = parseInt(response.headers.get('retry-after') || '60', 10)
           const resetTime = parseInt(response.headers.get('x-rate-limit-reset') || '0', 10)
-          
+
           logger.warn(`Rate limit hit for ${url}`, {
             status: response.status,
             retryAfter,
@@ -63,11 +63,11 @@ export abstract class BaseApiClient {
           if (retryCount < this.MAX_RETRIES) {
             const delay = Math.min(retryAfter * 1000, this.RETRY_DELAY * Math.pow(2, retryCount))
             logger.info(`Retrying after ${delay}ms (attempt ${retryCount + 1}/${this.MAX_RETRIES})`)
-            
+
             await this.sleep(delay)
             return this.makeRequest<T>(url, options, errorMessage, retryCount + 1)
           }
-          
+
           const rateLimitError = new Error(`Rate limit exceeded: ${errorMessage}`) as Error & ApiError
           rateLimitError.type = 'rate_limit'
           rateLimitError.status = 429
@@ -83,10 +83,10 @@ export abstract class BaseApiClient {
             error: errorData,
           })
           const authError = new AuthError(`Authentication failed: ${errorMessage}`)
-          ;(authError as any).type = 'auth_error'
-          ;(authError as any).status = response.status
-          ;(authError as any).retryable = false
-          ;(authError as any).details = errorData
+            ; (authError as any).type = 'auth_error'
+            ; (authError as any).status = response.status
+            ; (authError as any).retryable = false
+            ; (authError as any).details = errorData
           throw authError
         }
 
@@ -98,7 +98,7 @@ export abstract class BaseApiClient {
           errorCode: errorData?.error?.code,
           errorType: errorData?.error?.type
         })
-        
+
         console.error(`🚨 [API-ERROR] ${response.status} - ${errorData?.error?.message || errorMessage}`, {
           url: url.substring(0, 150) + '...',
           status: response.status,
@@ -107,7 +107,7 @@ export abstract class BaseApiClient {
           errorSubcode: errorData?.error?.error_subcode,
           fbtraceId: errorData?.error?.fbtrace_id
         })
-        
+
         const apiError = new Error(`${errorMessage}: ${response.status}`) as Error & ApiError
         apiError.type = 'api_error'
         apiError.status = response.status
@@ -119,17 +119,17 @@ export abstract class BaseApiClient {
       return await response.json()
     } catch (error: any) {
       logger.error(`Request error: ${url}`, { error: error.message || error })
-      
+
       // Don't retry our own custom errors
       if (error.type) {
         throw error
       }
-      
+
       // Network errors - could be retryable
       if (retryCount < this.MAX_RETRIES && this.isNetworkError(error)) {
         const delay = this.RETRY_DELAY * Math.pow(2, retryCount)
         logger.info(`Retrying network error after ${delay}ms (attempt ${retryCount + 1}/${this.MAX_RETRIES})`)
-        
+
         await this.sleep(delay)
         return this.makeRequest<T>(url, options, errorMessage, retryCount + 1)
       }
@@ -143,11 +143,11 @@ export abstract class BaseApiClient {
   }
 
   private static isNetworkError(error: any): boolean {
-    return error.name === 'TypeError' || 
-           error.message?.includes('fetch') ||
-           error.message?.includes('network') ||
-           error.code === 'ECONNRESET' ||
-           error.code === 'ENOTFOUND'
+    return error.name === 'TypeError' ||
+      error.message?.includes('fetch') ||
+      error.message?.includes('network') ||
+      error.code === 'ECONNRESET' ||
+      error.code === 'ENOTFOUND'
   }
 
   private static sleep(ms: number): Promise<void> {

@@ -50,6 +50,7 @@ export class FacebookApiClient extends BaseApiClient {
   ].join(',')
 
   // Comprehensive Facebook Ads Insights fields based on Meta Marketing API v23.0
+  // Updated to remove deprecated/invalid fields according to latest API docs
   private static readonly ADS_INSIGHTS_FIELDS = [
     // Basic Performance Metrics
     'impressions',
@@ -70,12 +71,11 @@ export class FacebookApiClient extends BaseApiClient {
     'conversion_values',
     'cost_per_action_type',
     'cost_per_conversion',
-    'website_ctr',
-    'website_clicks',
+    // Removed 'website_ctr' and 'website_clicks' - not valid in v23.0
+    // Use 'outbound_clicks' instead for website traffic
 
     // Video Metrics
     'video_play_actions',
-    'video_play_curve_actions',
     'video_p25_watched_actions',
     'video_p50_watched_actions',
     'video_p75_watched_actions',
@@ -88,20 +88,15 @@ export class FacebookApiClient extends BaseApiClient {
     'quality_ranking',
     'engagement_rate_ranking',
     'conversion_rate_ranking',
-    'estimated_ad_recall_rate',
-    'estimated_ad_recallers',
+    
+    // Outbound clicks (replacement for website_clicks)
+    'outbound_clicks',
+    'outbound_clicks_ctr',
 
     // Attribution Windows (following latest unified attribution settings)
     'mobile_app_purchase_roas',
     'website_purchase_roas',
-    'purchase_roas',
-
-    // Device & Platform
-    'canvas_avg_view_time',
-    'canvas_avg_view_percent',
-    'instant_experience_clicks_to_open',
-    'instant_experience_clicks_to_start',
-    'instant_experience_outbound_clicks'
+    'purchase_roas'
   ].join(',')
 
   // Comprehensive Facebook Posts Insights fields based on Meta Graph API v23.0
@@ -384,7 +379,9 @@ export class FacebookApiClient extends BaseApiClient {
       console.log('✅ [FACEBOOK-POSTS] Page info found:', { pageId, pageName: pageInfo.pageName })
 
       // Step 1: Get posts with basic data and engagement metrics
-      const postsUrl = `${this.BASE_URL}/${pageId}/posts?access_token=${pageAccessToken}&fields=id,message,story,created_time,type,status_type,likes.summary(true),comments.summary(true),shares,reactions.summary(true),attachments{media_type,type,subattachments,media,title,description}&limit=100`;
+      // Updated to use non-deprecated fields according to Meta Graph API v23.0
+      // Removed deprecated 'attachments' field - use individual media fields instead
+      const postsUrl = `${this.BASE_URL}/${pageId}/posts?access_token=${pageAccessToken}&fields=id,message,story,created_time,type,status_type,full_picture,permalink_url,likes.summary(true),comments.summary(true),shares,reactions.summary(true)&limit=100`;
 
       const postsData = await this.makeRequest<any>(postsUrl, {}, "Failed to fetch Facebook posts");
       const posts = postsData.data || [];
